@@ -1,0 +1,141 @@
+{
+  "source_commit": "33b64a0dc5c901975f0fdfaf45540ef6ebc5e47e",
+  "source_hashes_normalized_lf": {
+    ".dockerignore": "4e8e43811f47ffa3b54d527bfd184ab541c31d4404b48074a997344e90021801",
+    "Dockerfile": "db335827620f2e250f924d10d36602376433c56320eec57a3f389817ccca58b3",
+    "compose.yaml": "080a649ef866768eaaa03f0c689adb44eb7399cf9a7998a718c6e8b90fc7fb3b",
+    "procureflow/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "procureflow/agent.py": "19d11667a8c94756fc122357c43de49bcf9a6f48b5964926bb6f3d5a87c02e35",
+    "procureflow/api.py": "9d64dbefb632acfdb79ecbe2bbde5832ab43f8b5f6755a071fbd68f4086bc0cc",
+    "procureflow/catalog.py": "246ac18e7b668cc5f9bc20a52ee3d2c50e6723c0bf30858dcd418d75db2840e2",
+    "procureflow/contracts.py": "6774767bdeda5d33a80c239d74abd2b3ada92ef43cefb54d2f392557583ac806",
+    "procureflow/db.py": "b11a48782d3f39475cb275ffb0778d5bacc59d21096ed40a22dacc48dd94b904",
+    "procureflow/erp.py": "e6a7c93d2e1254290d8d834b2937e29a51c440b804cc0ff39f706e82d724185e",
+    "procureflow/mock_erp.py": "b2843151a935ae42724968e3677a4740062b8e0a2e79a96aa556e90f21b7e293",
+    "procureflow/readiness.py": "def8d38ab8e9883068d38382bbfb85a7ed77f03fcca61bc1bc8b0271dbacea16",
+    "procureflow/settings.py": "a0e49b5b65e93b46aaa3dac9ec940d615965e32de0e6cbf3b18521f460eeff7c",
+    "procureflow/web/index.html": "28030e983f24c906927c3d5ea38f8128bd748762d726bb61bdb813709b08e310",
+    "procureflow/workflow.py": "6ca79021eaed7f2ba82dc42a37c3d5682e3d3e927905987bb2a7fabd183f5379",
+    "pyproject.toml": "d8f97b74434bcf49f4a444078343b31481f102ded599bc53acb9debcd3f569ba",
+    "scripts/demo_env.py": "1aaddeafb8b94d74655b3eac50c31476fc47e5fd02d69e2580d9bd16d78e64df",
+    "scripts/verify_compose.py": "4faade83a03cf6b7c1a677075a105ee874493f5aa4353a124dd06824d12b6d88",
+    "uv.lock": "f7b968f20e1ea30189db9fe86f45bf5e83ee09020fadcf5382278fa80584b126"
+  },
+  "input_sha256": {
+    "model-compose-docker.tgz": "4f798b3ee1e0140eab5bf30b0edc4e84f4cdb53255a429dc3bbae9524845d640",
+    "model-compose-docker-compose": "ed1917fb54db184192ea9d0717bcd59e3662ea79db48bff36d3475516c480a6b",
+    "model-compose-llama-linux.tar.gz": "209023cfc6061720802c103e5b7ba9f99e9304a3bdcd035fc50c3fba064cb79f",
+    "model-compose-model.gguf": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+    "model-compose-source.tgz": "2fe82b6af4df1f11d1a9c0fc73cf81c81c411cd4ddb0995ae3f59d724c948c6d",
+    "model-compose-guest.sh": "2580764b7238d8614a9a3c3bff1857ce50ff6fa532da6b8cc2d76df67f1c704e",
+    "model-compose-bounded.py": "74ab0cfea3b8c609778390d3ad818fe2490eaf7520b7ee5f34ee39be6562fd0d"
+  },
+  "exit_code": 0,
+  "observations": [
+    "STAGE: starting isolated Docker daemon",
+    "IMAGE_model: sha256:a29a91ea3dfe1c206e766dac7c21199504c05f0084f178b0a4ce58c09b949869",
+    "IMAGE_model_base: sha256:7da97f743f397971f35dd21cd2d19a7da070a150e0cfa3eda559e71891ec7533",
+    "STAGE: building application image",
+    "STAGE: starting model and application services",
+    "STAGE: checking TLS and authentication from the application container",
+    "PASS: trusted HTTPS, model authentication, wrong hostname and untrusted CA checks",
+    "STAGE: querying real model and recording synthetic answer",
+    "MODEL_HTTP_STATUS: 200",
+    "MODEL_TOOL_EVENTS: list_stock:ok",
+    "STAGE: verifying independent synthetic purchasing flow",
+    "PASS: application process is alive",
+    "PASS: application database is ready",
+    "PASS: buyer identity",
+    "PASS: approver identity",
+    "PASS: synthetic inventory and shortages",
+    "PASS: synthetic supplier quotes",
+    "PASS: synthetic replenishment recommendation",
+    "PASS: existing draft list readable",
+    "PASS: draft creation without a preview rejected",
+    "PASS: server-calculated preview",
+    "PASS: draft created with deterministic total",
+    "PASS: same draft returned on retry",
+    "PASS: consumed preview cannot create another draft",
+    "PASS: only one new draft persisted",
+    "PASS: unapproved submission rejected",
+    "PASS: buyer cannot approve",
+    "PASS: approver can approve",
+    "PASS: buyer cannot submit",
+    "PASS: mock ERP receipt and audit trail",
+    "PASS: ERP submission retry returns the original receipt",
+    "PASS: isolated synthetic manual purchasing flow",
+    "STAGE: observations collected; awaiting cleanup verification; no browser or human UAT",
+    "CLEANUP: compose_down_exit=0",
+    "CLEANUP: daemon_stopped",
+    "CLEANUP: ipv4_forwarding_unchanged",
+    "CLEANUP: ipv6_forwarding_unchanged",
+    "CLEANUP: iptables_unchanged",
+    "CLEANUP: ip6tables_unchanged",
+    "CLEANUP: nft_unchanged"
+  ],
+  "independent_cleanup_verified": true,
+  "limitations": [
+    "Synthetic API only; no browser, no independent UAT.",
+    "Model quality is not validated by connectivity or purchasing checks.",
+    "Portable Docker digest is local only; no independent publisher checksum obtained.",
+    "A lost SSH connection or abrupt host failure can prevent verified remote cleanup."
+  ],
+  "model_observation": {
+    "http_status": 200,
+    "result": {
+      "request_id": "516560f9-4326-4db2-a44a-92663130777c",
+      "answer": "在未来七天，缺货的物料有：\n\n- 装配支架：缺货 20 个\n- 密封垫：缺货 23 个\n- 包装标签：缺货 28 个\n- 采购标签：缺货 0 个\n\n这些物料将在 2026-01-08 之前出现缺货情况。",
+      "draft_id": null,
+      "trace": {
+        "model": "qwen2.5-0.5b-instruct-q4_k_m",
+        "started_at": "2026-11-16T22:30:21.130702Z",
+        "elapsed_ms": 14978,
+        "model_calls": 2,
+        "input_tokens": 2160,
+        "output_tokens": 103,
+        "events": [
+          {
+            "step": 1,
+            "tool": "list_stock",
+            "outcome": "ok",
+            "elapsed_ms": 12,
+            "result_count": 3
+          }
+        ]
+      },
+      "authoritative_rules": [
+        {
+          "code": "required_date",
+          "explanation": "需求截止日不是供应商确认或预计的到货日期。"
+        },
+        {
+          "code": "supplier_selection",
+          "explanation": "供应商和采购数量由系统规则计算，本演示不能手动指定。"
+        },
+        {
+          "code": "draft_workflow",
+          "explanation": "采购员先选择物料、查看预览并确认，之后才生成草案；审批人再审批和提交模拟 ERP。"
+        },
+        {
+          "code": "rejected_draft",
+          "explanation": "已拒绝的草案不能重新审批或提交；需要重新采购时，应先核对并新建草案。"
+        },
+        {
+          "code": "demo_data",
+          "explanation": "默认演示使用合成库存与报价，并提交到模拟 ERP；这些数据不是实际企业采购依据。"
+        },
+        {
+          "code": "draft_status",
+          "explanation": "助手不能查询草案或审批状态，请在应用的采购草案列表中查看。"
+        }
+      ]
+    },
+    "scope": "synthetic API request; real local 0.5B model; no browser or independent UAT"
+  },
+  "assessment": {
+    "kind": "AI-assisted review; no independent human review",
+    "result": "The model called list_stock but falsely reported LABEL shortage 28 and invented a fourth material. This is not a successful business answer.",
+    "cleanup": "Compose shutdown and daemon stop were independently checked. The subsequent attempt to remove the temporary guest directory returned nonzero; its remaining contents and disk impact are not yet verified.",
+    "scope": "One synthetic API request in the same Compose environment as MySQL and mock ERP; purchasing verification was scripted separately after the model call, with no browser or human UAT."
+  }
+}

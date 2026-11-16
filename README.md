@@ -36,6 +36,8 @@
 
 两阶段确认流程另在 VMware 隔离开发机上进行了 [Compose API 验收](evidence/compose-vmware-confirmation.json)，打包提交为 `b1b8b9842c752865d055b6d9b56cbe8ce2cdf98a`，记录了源码哈希、角色、确认、重试、取消、审批、模拟 ERP 回执及依赖故障恢复。数据和 ERP 均为模拟，本次没有运行真实模型或在该容器实例中操作浏览器；Docker 静态包仅记录本地哈希，未取得发布方独立校验值。
 
+在同一 VMware Compose 环境中，还用真实本地 Qwen2.5 0.5B 模型进行了[一次 API 实验](evidence/compose-real-local-model.json)，对应源码提交 `33b64a0dc5c901975f0fdfaf45540ef6ebc5e47e`：应用通过 HTTPS 访问模型，检查了认证及错误证书拒绝；随后分别运行模型库存查询和脚本化采购审批、模拟 ERP 回执。模型调用了库存工具，却错误报告标签缺货并编造了额外物料，**回答未通过业务核对**。本次没有操作浏览器，也不是独立人工 UAT；容器和独立 Docker 守护进程已停止并核验，但随后删除临时实验目录的操作返回失败，残留范围仍待核实。Docker 静态包仍只有本地哈希，没有取得发布方独立校验值。
+
 ```bash
 python scripts/demo_env.py
 docker compose up --build
