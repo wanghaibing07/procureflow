@@ -21,6 +21,8 @@ jobs:
           "$RUNNER_TEMP/uv-bootstrap/bin/uv" sync --locked
       - name: Run offline tests
         run: uv run --locked pytest -q
+      - name: Check answer evidence notice
+        run: node --test tests/agent_evidence.test.cjs
       - name: Run isolated MySQL integration tests
         run: |
           password=$(openssl rand -hex 24)

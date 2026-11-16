@@ -84,6 +84,9 @@ const server = http.createServer(async (req, res) => {
     const result = {request_id: id, draft_id: null,
       answer: body.prompt === "Explain the rules" ? "模型声称：到货日期已经确定。" : "Test query completed",
       trace: {model: "test-model", model_calls: 1, elapsed_ms: 1, input_tokens: 1, output_tokens: 1, events: []}};
+    if (body.prompt === "Successful query") result.trace.events = [{tool: "list_stock", outcome: "ok", elapsed_ms: 1}];
+    if (body.prompt === "Rejected query") result.trace.events = [{tool: "list_stock", outcome: "rejected", elapsed_ms: 1}];
+    if (body.prompt === "Missing trace") result.trace = null;
     if (!legacy) result.authoritative_rules = [
       {code: "required_date", explanation: "需求截止日不是确认到货日期。"},
       {code: "draft_workflow", explanation: "采购员先确认预览，之后才生成草案。 <b>文本</b>"},
@@ -233,6 +236,19 @@ try {
       !normalRules.labels.includes('模型回答可能有误') || normalRules.markup || normalRules.fallback)
     throw new Error('Model answer and authoritative rules were not safely distinguished');
 
+  for (const [prompt, expected] of [
+    ['Rejected query', '没有成功查询业务数据'],
+    ['Successful query', '不能证明回答中每个结论都有依据'],
+    ['Missing trace', '无法确认本次查询依据'],
+  ]) {
+    await page.waitForFunction(() => !document.querySelector('#agent-form button[type="submit"]').disabled);
+    await fillPrompt(prompt);
+    await page.click('#agent-form button[type="submit"]', {label: '检查查询依据提示'});
+    await page.waitForFunction(value => !document.querySelector('#agent-result').hidden &&
+      document.querySelector('#agent-evidence').textContent.includes(value), expected);
+  }
+
+  await page.waitForFunction(() => !document.querySelector('#agent-form button[type="submit"]').disabled);
   await fillPrompt('Legacy service response');
   await page.click('#agent-form button[type="submit"]', {label: '测试旧版响应'});
   await page.waitForFunction(() => !document.querySelector('#agent-result').hidden &&
