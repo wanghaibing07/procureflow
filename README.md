@@ -24,6 +24,8 @@
 
 针对数据来源和草案查询能力，又使用本机 Magpie 与合成 SQLite 进行了各三条[修改前](evidence/magpie-semantic-probe.json)和[修改后](evidence/magpie-semantic-probe-after.json)定向测试；被测 `agent.py` 哈希分别记录在文件内。修改后该次回答说明了演示报价和模拟 ERP，也指出助手不能查询草案；但免费采购请求没有得到直接回答。每条只运行一次，由 AI 辅助复核，尚未经独立人工验收，不能据此推断整体准确率。
 
+随后对提交 `cfee36c8deeec102de1503fc3c299b4d5bd62254` 的源码又执行了 [25 条真实模型场景](evidence/magpie-confirmation-evaluation-v4.json)：自动检查未报错，所有回答仍需人工复核。AI 辅助复核发现模型在一条负面请求中没有查询库存就错误地说 BRACKET 不是具体 SKU；另一条未明确说明禁止审批本人草案，报价回答对交期的表述也需注意。两次建单由脚本模拟确认；结果不能代表独立人工验收、生产准确率或浏览器和容器联合验收。
+
 ## 运行
 
 用 Docker Compose 启动应用、MySQL 和模拟 ERP。需要 Python 3.12 运行令牌生成脚本；脚本只创建本地 `.env`，不会覆盖已有配置。
