@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>ProcureFlow · 采购补货工作台</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #192b36;
+      --muted: #4e5d65;
+      --paper: #f2f5f4;
+      --panel: #fff;
+      --line: #d3dfdc;
+      --accent: #125841;
+      --pale: #e4f1e9;
+      --danger: #9b3525;
+      --warn: #774100;
+      --focus: #005acc;
+      font-family: system-ui, "Microsoft YaHei", sans-serif;
+      font-size: 16px;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; line-height: 1.55; }
+    button, input, textarea { font: inherit; }
+    button, input[type=checkbox], summary { cursor: pointer; }
+    :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+    button, input[type=password], textarea { border: 1px solid var(--line); border-radius: 5px; }
+    button { min-height: 44px; padding: .48rem .9rem; background: var(--panel); color: var(--ink); font-weight: 650; }
+    button:hover:not(:disabled) { border-color: var(--accent); background: var(--pale); }
+    button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+    button.primary:hover:not(:disabled) { background: #09452f; }
+    button.danger { color: var(--danger); }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    input[type=password], textarea { width: 100%; padding: .6rem .7rem; min-height: 44px; }
+    textarea { min-height: 105px; resize: vertical; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: clamp(1.8rem, 4vw, 2.75rem); line-height: 1.2; letter-spacing: -.025em; }
+    h2 { font-size: 1.27rem; }
+    h3 { font-size: 1.03rem; }
+    small, .muted { color: var(--muted); }
+    small { font-size: .82rem; }
+    .wrap { width: min(1090px, 100% - 2rem); margin-inline: auto; }
+    .topbar { background: var(--panel); border-bottom: 1px solid var(--line); }
+    .topbar .wrap { min-height: 64px; }
+    .topbar .wrap, .section-title, .row-actions, .identity {
+      display: flex; align-items: center; justify-content: space-between; gap: .7rem; flex-wrap: wrap;
+    }
+    .brand { color: var(--accent); font-size: 1.2rem; font-weight: 780; }
+    .badge { padding: .22rem .56rem; border-radius: 4px; background: var(--pale); color: var(--accent); font-weight: 650; font-size: .84rem; }
+    .badge.wait { color: var(--warn); background: #fff2dc; }
+    .badge.rejected { color: var(--danger); background: #fbece8; }
+    .intro { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 1.3rem; padding: 2.35rem 0 1.55rem; }
+    .intro p { max-width: 34rem; margin-top: .55rem; }
+    .date { display: grid; gap: .12rem; border-left: 3px solid var(--accent); padding: .05rem .8rem; font-variant-numeric: tabular-nums; }
+    .date strong { font-size: 1.1rem; }
+    .surface { border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
+    .session { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; padding: 1rem 1.2rem; align-items: center; }
+    .session p, .section-title p { margin-top: .2rem; }
+    .signin { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .55rem; }
+    .field { display: grid; gap: .25rem; }
+    .flow { display: grid; grid-template-columns: repeat(3, 1fr); list-style: none; padding: 0; margin: 1.2rem 0; border-block: 1px solid var(--line); }
+    .flow li { padding: .6rem .5rem; color: var(--muted); }
+    .flow li + li { border-left: 1px solid var(--line); padding-left: .85rem; }
+    .flow strong { color: var(--accent); margin-right: .25rem; }
+    .notice { min-height: 1.6rem; margin: .85rem 0; color: var(--accent); }
+    .notice.error { color: var(--danger); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 1rem; align-items: start; padding-bottom: 2rem; }
+    .layout > div { display: grid; min-width: 0; gap: 1rem; }
+    .panel { padding: 1.05rem; min-width: 0; }
+    .section-title { margin-bottom: .85rem; }
+    .table-scroll { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: .92rem; }
+    th, td { text-align: left; padding: .56rem .55rem; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 650; background: var(--paper); white-space: nowrap; }
+    td:not(:first-child) { white-space: nowrap; }
+    .shortage { color: var(--danger); font-weight: 700; }
+    .choices { display: grid; gap: .65rem; margin: .8rem 0; }
+    .choice { display: grid; gap: .15rem; padding: .68rem .72rem; background: var(--paper); border-left: 3px solid var(--line); min-height: 44px; }
+    .choice.orderable { border-left-color: var(--accent); }
+    .choice label, .checkbox-line { display: flex; align-items: center; gap: .6rem; min-height: 44px; }
+    input[type=checkbox] { width: 1.15rem; height: 1.15rem; margin: 0; accent-color: var(--accent); flex: none; }
+    .agent-answer { margin-top: .9rem; padding: .8rem; border-left: 3px solid var(--accent); background: var(--paper); white-space: pre-wrap; overflow-wrap: anywhere; }
+    #agent-trace { overflow-wrap: anywhere; }
+    details { margin-top: .65rem; }
+    summary { min-height: 44px; padding: .52rem 0; color: var(--accent); }
+    .draft { border-block-start: 1px solid var(--line); padding: .8rem 0; overflow-wrap: anywhere; }
+    .draft .row-actions { justify-content: flex-start; margin-top: .55rem; }
+    .draft-head { display: flex; align-items: start; justify-content: space-between; gap: .55rem; }
+    .draft-head .badge { flex-shrink: 0; }
+    .draft ul { padding-left: 1.3rem; }
+    .receipt { display: grid; gap: .1rem; padding: .5rem .6rem; margin-top: .55rem; background: var(--pale); color: var(--accent); }
+    .events { padding: 0 !important; margin: .2rem 0 0; list-style: none; }
+    .events li + li { border-top: 1px solid var(--line); }
+    .events li { padding: .3rem 0; font-size: .86rem; }
+    @media (max-width: 760px) {
+      .layout, .session { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 440px) {
+      .intro { grid-template-columns: 1fr; gap: .85rem; padding-top: 1.6rem; }
+      .flow li, .flow li + li { padding: .55rem .36rem; }
+      .flow { font-size: .83rem; }
+      .panel, .session { padding: .8rem; }
+      .signin { grid-template-columns: 1fr; }
+      .signin button { justify-self: start; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar"><div class="wrap">
+    <span class="brand">ProcureFlow</span>
+    <span class="badge">合成数据 · 模拟 ERP</span>
+  </div></header>
+  <main class="wrap">
+    <div class="intro">
+      <div>
+        <h1>采购补货工作台</h1>
+        <p class="muted">从库存缺口生成采购草案，交由审批人确认，再拿到模拟 ERP 回执。</p>
+      </div>
+      <div class="date"><small>演示计划 · 未来 7 天</small><strong>2026-01-01 至 01-08</strong></div>
+    </div>
+    <section class="surface session" aria-labelledby="session-title">
+      <div><h2 id="session-title">选择操作身份</h2><p class="muted">采购员创建草案；审批人负责审批和提交。</p></div>
+      <form id="signin" class="signin">
+        <label class="field" for="token">身份令牌<input type="password" id="token" autocomplete="off" required></label>
+        <button type="submit" class="primary">验证身份</button>
+      </form>
+      <div id="identity" class="identity" hidden>
+        <span id="identity-name" class="badge"></span>
+        <button type="button" id="switch-user">退出并切换身份</button>
+      </div>
+    </section>
+    <p class="notice" id="notice" role="status" aria-live="polite">输入演示令牌后查看库存和草案。</p>
+    <ol class="flow" aria-label="采购流程">
+      <li><strong>01</strong> 查库存缺口</li>
+      <li><strong>02</strong> 生成采购草案</li>
+      <li><strong>03</strong> 审批并提交</li>
+    </ol>
+    <div id="workspace" class="layout" hidden>
+      <div>
+        <section class="surface panel" aria-labelledby="stock-title">
+          <div class="section-title"><div><h2 id="stock-title">库存与补货建议</h2><p class="muted">只计算计划日期前到货的在途库存。</p></div>
+            <button type="button" id="reload-stock">刷新库存</button></div>
+          <div class="table-scroll" tabindex="0" aria-label="库存明细表，可横向滚动">
+            <table><thead><tr><th scope="col">物料</th><th scope="col">现存</th><th scope="col">预留</th><th scope="col">按期在途</th><th scope="col">预计需求</th><th scope="col">安全库存</th><th scope="col">缺口</th></tr></thead>
+            <tbody id="stock"></tbody></table>
+          </div>
+          <form id="new-draft" aria-label="生成采购草案">
+            <div class="choices" id="recommendations"></div>
+            <button id="create-draft" class="primary" type="submit" disabled>生成采购草案</button>
+          </form>
+        </section>
+        <section class="surface panel" id="agent-panel" aria-labelledby="agent-title" hidden>
+          <div class="section-title"><div><h2 id="agent-title">用自然语言查询</h2><p class="muted">助手可以查询库存和报价。审批、提交仍由审批人手动完成。</p></div></div>
+          <form id="agent-form">
+            <label class="field" for="prompt">说说你想查什么<textarea id="prompt" maxlength="2000" required placeholder="未来 7 天哪些物料需要补货？"></textarea></label>
+            <label id="allow-row" class="checkbox-line"><input id="allow-draft" type="checkbox">允许助手生成采购草案</label>
+            <button type="submit" class="primary">运行助手</button>
+          </form>
+          <div id="agent-result" hidden>
+            <p id="agent-answer" class="agent-answer" tabindex="-1"></p>
+            <details><summary>查看工具调用记录</summary><div id="agent-trace"></div></details>
+          </div>
+        </section>
+        <p class="muted" id="agent-disabled" hidden>模型未配置，仍可手动完成采购流程。</p>
+      </div>
+      <div>
+        <section class="surface panel" aria-labelledby="drafts-title">
+          <div class="section-title"><div><h2 id="drafts-title" tabindex="-1">采购草案</h2><p id="drafts-help" class="muted"></p></div>
+            <button type="button" id="reload-drafts">刷新草案</button></div>
+          <div id="drafts"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <script>
+    "use strict";
+
+    const element = (id) => document.getElementById(id);
+    const asOf = "2026-01-01";
+    const horizon = 7;
+    const query = new URLSearchParams({as_of: asOf, horizon_days: horizon});
+    const states = {draft: "待审批", approved: "已审批", rejected: "已拒绝", submitted: "已提交"};
+    const responses = {supplier_cannot_meet_due: "没有供应商能按期到货", no_supplier_quotes: "没有供应商报价", quantity_exceeds_limit: "数量超过演示单物料上限"};
+    const actions = {created: "创建草案", approved: "审批通过", rejected: "拒绝草案", submitted: "已提交 ERP"};
+    const tools = {list_stock: "查询库存", list_quotes: "查询供应商报价", create_draft: "生成采购草案"};
+    const currency = new Intl.NumberFormat("zh-CN", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const localTime = new Intl.DateTimeFormat("zh-CN", {dateStyle: "short", timeStyle: "medium"});
+    let active = null;
+    let signIn = null;
+    let modelConfigured = false;
+
+    // PENDING REQUESTS: Persist only opaque HMAC fingerprints and random UUIDs. The
+    // non-extractable key stays in this browser; no token, prompt or order is stored.
+    async function pendingRequest(kind, actor, body, confirmedId) {
+      let db;
+      try {
+        const opened = indexedDB.open("procureflow-pending-v1", 1);
+        opened.onupgradeneeded = () => opened.result.createObjectStore("state");
+        db = await new Promise((resolve, reject) => {
+          opened.onsuccess = () => resolve(opened.result);
+          opened.onerror = () => reject(opened.error);
+          opened.onblocked = () => reject(new Error("Pending store blocked"));
+        });
+        const candidate = await crypto.subtle.generateKey({name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
+        const hmacKey = await new Promise((resolve, reject) => {
+          const tx = db.transaction("state", "readwrite");
+          const store = tx.objectStore("state");
+          let key;
+          const request = store.get("hmac-key");
+          request.onsuccess = () => {
+            key = request.result || candidate;
+            if (!request.result) store.put(key, "hmac-key");
+          };
+          tx.oncomplete = () => resolve(key);
+          tx.onabort = tx.onerror = () => reject(tx.error || new Error("Pending store failed"));
+        });
+        const input = new TextEncoder().encode(JSON.stringify([kind, actor, body]));
+        const signature = await crypto.subtle.sign("HMAC", hmacKey, input);
+        const fingerprint = [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+        const slot = "pending:" + fingerprint;
+        const proposed = crypto.randomUUID();
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction("state", "readwrite");
+          const store = tx.objectStore("state");
+          let id;
+          const request = store.get(slot);
+          request.onsuccess = () => {
+            const existing = request.result;
+            if (existing !== undefined && (typeof existing !== "string" || !/^[0-9a-f-]{36}$/.test(existing))) {
+              tx.abort();
+              return;
+            }
+            if (confirmedId !== undefined) {
+              if (existing === confirmedId) store.delete(slot);
+            } else {
+              id = existing || proposed;
+              if (!existing) store.put(id, slot);
+            }
+          };
+          tx.oncomplete = () => resolve(id);
+          tx.onabort = tx.onerror = () => reject(tx.error || new Error("Pending store failed"));
+        });
+      } catch (error) {
+        throw new Error("无法安全保存本次请求编号，请允许浏览器使用站点存储后重试。");
+      } finally {
+        db?.close();
+      }
+    }
+    // END PENDING REQUESTS
+
+    function node(tag, text, className) {
+      const result = document.createElement(tag);
+      if (text !== undefined) result.textContent = text;
+      if (className) result.className = className;
+      return result;
+    }
+
+    function notice(message, error = false) {
+      const result = element("notice");
+      result.textContent = message;
+      result.classList.toggle("error", error);
+    }
+
+    function amount(value) {
+      return currency.format(String(value));
+    }
+
+    function time(value) {
+      const stamp = new Date(value);
+      return Number.isNaN(stamp.getTime()) ? String(value ?? "") : localTime.format(stamp);
+    }
+
+    function selectedSkus() {
+      return [...element("recommendations").querySelectorAll("input:checked")].map((input) => input.value).sort();
+    }
+
+    function controls() {
+      const busy = !active || active.busy;
+      element("workspace").querySelectorAll("button").forEach((button) => button.disabled = busy);
+      element("create-draft").disabled = busy || !selectedSkus().length;
+      element("switch-user").disabled = false;
+    }
+
+    function optionalModel() {
+      const visible = Boolean(active && modelConfigured);
+      element("agent-panel").hidden = !visible;
+      element("agent-disabled").hidden = !active || visible;
+      element("allow-row").hidden = active?.identity.role !== "buyer";
+    }
+
+    function clearSession(message, error = false) {
+      if (active) {
+        active.controller.abort();
+        active.token = "";
+      }
+      active = null;
+      element("signin").hidden = false;
+      element("identity").hidden = true;
+      element("workspace").hidden = true;
+      element("identity-name").textContent = "";
+      element("token").value = "";
+      element("prompt").value = "";
+      element("allow-draft").checked = false;
+      element("agent-result").hidden = true;
+      for (const id of ["stock", "recommendations", "drafts", "drafts-help", "agent-answer", "agent-trace"]) element(id).replaceChildren();
+      optionalModel();
+      notice(message, error);
+      element("token").focus();
+    }
+
+    async function request(path, session, {method = "GET", body, key} = {}) {
+      const headers = new Headers({Accept: "application/json"});
+      if (session?.token) headers.set("Authorization", "Bearer " + session.token);
+      if (body !== undefined) headers.set("Content-Type", "application/json");
+      if (key) headers.set("Idempotency-Key", key);
+      const response = await fetch(path, {
+        method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+        cache: "no-store", redirect: "error", signal: session?.controller.signal,
+      });
+      const data = await response.json().catch(() => null);
+      if (response.ok && data !== null) return data;
+      const messages = {
+        401: "令牌无效，请重新验证身份。", 403: "当前身份没有权限执行此操作。",
+        400: "当前补货建议已变化或请求无效。请刷新后重试。",
+        404: "未找到此草案，请刷新列表。",
+        409: "草案状态或请求内容已变化，请刷新列表确认。",
+        422: "输入不符合要求，请检查后重试。",
+        503: "服务暂时不可用，请稍后按原操作重试。",
+      };
+      const error = new Error(messages[response.status] || "请求失败，请稍后重试。");
+      error.status = response.status;
+      throw error;
+    }
+
+    async function interact(working, handler) {
+      const session = active;
+      if (!session || session.busy) return;
+      session.busy = true;
+      controls();
+      notice(working);
+      try {
+        const message = await handler(session);
+        if (active === session && message) notice(message);
+      } catch (error) {
+        if (active !== session) return;
+        if (error.status === 401) clearSession(error.message, true);
+        else notice(error instanceof TypeError ? "无法连接到服务，请检查后重试。" : error.message, true);
+      } finally {
+        if (active === session) {
+          session.busy = false;
+          controls();
+        }
+      }
+    }
+
+    function renderStock(stock, recommendations) {
+      const tbody = element("stock");
+      tbody.replaceChildren();
+      for (const item of stock) {
+        const row = node("tr");
+        const material = node("td", item.name);
+        material.append(node("br"), node("small", item.sku));
+        row.append(material);
+        for (const value of [item.on_hand, item.reserved, item.inbound_by_due, item.forecast_demand, item.safety_stock]) row.append(node("td", value));
+        row.append(node("td", item.shortage, item.shortage ? "shortage" : ""));
+        tbody.append(row);
+      }
+      const choices = element("recommendations");
+      const previous = new Set(selectedSkus());
+      choices.replaceChildren();
+      if (!recommendations.length) choices.append(node("p", "本期没有需要补货的物料。", "muted"));
+      const buyer = active.identity.role === "buyer";
+      for (const item of recommendations) {
+        const card = node("div", undefined, item.line ? "choice orderable" : "choice");
+        const title = item.stock.name + "（" + item.stock.sku + "）需补 " + item.stock.shortage + " 件";
+        if (item.line && buyer) {
+          const checkbox = node("input");
+          checkbox.type = "checkbox";
+          checkbox.value = item.line.sku;
+          checkbox.checked = previous.has(item.line.sku);
+          const label = node("label");
+          label.append(checkbox, node("strong", title));
+          card.append(label);
+        } else {
+          card.append(node("strong", title));
+        }
+        card.append(node("small", item.line
+          ? "供应商 " + item.line.supplier_id + " · 建议采购 " + item.line.quantity + " 件 · 单价 " + amount(item.line.unit_price) + " · 最迟 " + item.line.due_date
+          : responses[item.reason] || "本条建议暂不可下单"));
+        choices.append(card);
+      }
+      controls();
+    }
+
+    async function loadStock(session) {
+      const [stock, recommendations] = await Promise.all([
+        request("/api/stock?" + query, session), request("/api/recommendations?" + query, session),
+      ]);
+      if (active === session) renderStock(stock, recommendations);
+    }
+
+    function action(label, handler, className) {
+      const button = node("button", label, className);
+      button.type = "button";
+      button.addEventListener("click", handler);
+      return button;
+    }
+
+    function renderDrafts(drafts) {
+      const list = element("drafts");
+      const approver = active.identity.role === "approver";
+      list.replaceChildren();
+      element("drafts-help").textContent = approver ? "先确认草案，再提交到模拟 ERP。" : "生成草案后，请切换审批人身份。";
+      if (!drafts.length) list.append(node("p", approver ? "当前没有草案。请先用采购员身份创建。" : "勾选可订物料后生成第一张草案。", "muted"));
+      for (const draft of drafts) {
+        const card = node("article", undefined, "draft");
+        const head = node("div", undefined, "draft-head");
+        const badge = node("span", states[draft.status] || draft.status,
+          "badge " + (draft.status === "rejected" ? "rejected" : draft.status === "draft" ? "wait" : ""));
+        head.append(node("h3", "采购单 " + draft.draft_id.slice(0, 8)), badge);
+        card.append(head, node("small", "采购员 " + draft.buyer_id + " · 合计 " + amount(draft.total)));
+        const lines = node("ul");
+        for (const line of draft.lines) {
+          lines.append(node("li", line.sku + " · " + line.quantity + " 件 · " + line.supplier_id));
+        }
+        card.append(lines);
+        if (draft.erp_reference) {
+          const receipt = node("div", undefined, "receipt");
+          receipt.append(node("small", "模拟 ERP 回执"), node("strong", draft.erp_reference));
+          card.append(receipt);
+        }
+        if (approver && (draft.status === "draft" || draft.status === "approved")) {
+          const buttons = node("div", undefined, "row-actions");
+          if (draft.status === "draft") {
+            buttons.append(action("审批通过", () => updateDraft(draft, "decision", {approve: true}, "草案已审批。"), "primary"),
+              action("拒绝草案", () => updateDraft(draft, "decision", {approve: false}, "草案已拒绝。"), "danger"));
+          } else {
+            buttons.append(action("提交至模拟 ERP", () => updateDraft(draft, "submit", undefined, "已拿到模拟 ERP 回执。"), "primary"));
+          }
+          card.append(buttons);
+        }
+        if (draft.events?.length) {
+          const details = node("details");
+          const events = node("ul", undefined, "events");
+          for (const record of draft.events) {
+            events.append(node("li", (actions[record.event] || record.event) + " · " + record.actor_id + " · " + time(record.happened_at)));
+          }
+          details.append(node("summary", "审计记录（" + draft.events.length + "）"), events, node("small", "时间按本地时区显示"));
+          card.append(details);
+        }
+        list.append(card);
+      }
+      controls();
+    }
+
+    async function loadDrafts(session) {
+      const drafts = await request("/api/drafts", session);
+      if (active === session) renderDrafts(drafts);
+    }
+
+    function renderTrace(trace) {
+      const container = element("agent-trace");
+      container.replaceChildren();
+      if (!trace) {
+        container.append(node("p", "暂无记录。", "muted"));
+        return;
+      }
+      const stats = ["模型 " + trace.model, "调用 " + trace.model_calls + " 次", "共 " + trace.elapsed_ms + " 毫秒"];
+      if (trace.input_tokens !== null && trace.output_tokens !== null && trace.input_tokens !== undefined && trace.output_tokens !== undefined) {
+        stats.push("输入 / 输出 " + trace.input_tokens + " / " + trace.output_tokens + " tokens");
+      }
+      container.append(node("p", stats.join(" · "), "muted"));
+      const events = node("ol", undefined, "events");
+      for (const event of trace.events ?? []) {
+        events.append(node("li", (tools[event.tool] || event.tool) + " · " + (event.outcome === "ok" ? "成功" : "已拦截") + " · " + event.elapsed_ms + " 毫秒"));
+      }
+      if (events.childElementCount) container.append(events);
+      else container.append(node("p", "这次没有调用业务工具。", "muted"));
+    }
+
+    function updateDraft(draft, operation, body, success) {
+      interact("正在更新草案…", async (session) => {
+        await request("/api/drafts/" + encodeURIComponent(draft.draft_id) + "/" + operation, session, {method: "POST", body});
+        await loadDrafts(session);
+        if (active === session) element("drafts-title").focus();
+        return success;
+      });
+    }
+
+    element("signin").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (signIn || active) return;
+      const form = event.currentTarget;
+      const field = element("token");
+      const session = {token: field.value.trim(), controller: new AbortController(), busy: false};
+      if (!session.token) {
+        notice("请输入有效的身份令牌。", true);
+        return;
+      }
+      signIn = session;
+      field.value = "";
+      form.querySelector("button").disabled = true;
+      notice("正在验证身份…");
+      try {
+        session.identity = await request("/api/me", session);
+        if (!["buyer", "approver"].includes(session.identity.role)) throw new Error("服务返回了未知的身份。");
+        active = session;
+        form.hidden = true;
+        element("identity").hidden = false;
+        element("workspace").hidden = false;
+        const role = session.identity.role === "buyer" ? "采购员" : "审批人";
+        element("identity-name").textContent = role + " · " + session.identity.actor_id;
+        element("create-draft").hidden = session.identity.role !== "buyer";
+        optionalModel();
+        element("switch-user").focus();
+        await interact("正在读取演示数据…", async (current) => {
+          await Promise.all([loadStock(current), loadDrafts(current)]);
+          return "已切换为" + role + "。";
+        });
+      } catch (error) {
+        session.token = "";
+        clearSession(error instanceof TypeError ? "无法连接到服务，请检查启动状态。" : error.message, true);
+      } finally {
+        if (signIn === session) signIn = null;
+        form.querySelector("button").disabled = false;
+      }
+    });
+
+    element("switch-user").addEventListener("click", () => clearSession("已退出。请输入另一个身份的令牌。"));
+    element("reload-stock").addEventListener("click", () => interact("正在刷新库存…", async (session) => {
+      await loadStock(session);
+      return "库存与补货建议已刷新。";
+    }));
+    element("reload-drafts").addEventListener("click", () => interact("正在刷新草案…", async (session) => {
+      await loadDrafts(session);
+      return "草案已刷新。";
+    }));
+    element("recommendations").addEventListener("change", controls);
+    element("new-draft").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const skus = selectedSkus();
+      if (active?.identity.role !== "buyer" || !skus.length) return;
+      interact("正在生成采购草案…", async (session) => {
+        const body = {skus, as_of: asOf, horizon_days: horizon};
+        const key = await pendingRequest("manual", session.identity.actor_id, body);
+        const draft = await request("/api/drafts", session, {method: "POST", body, key});
+        await loadDrafts(session);
+        if (active === session) {
+          await pendingRequest("manual", session.identity.actor_id, body, key);
+          element("recommendations").querySelectorAll("input:checked").forEach((input) => input.checked = false);
+          element("drafts-title").focus();
+        }
+        return "草案 " + draft.draft_id.slice(0, 8) + " 已就绪，可切换审批人确认。";
+      });
+    });
+
+    element("agent-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const prompt = element("prompt").value.trim();
+      if (!prompt || !active || !modelConfigured) return;
+      const allowDraft = active.identity.role === "buyer" && element("allow-draft").checked;
+      interact("助手正在查询…", async (session) => {
+        const body = {prompt, as_of: asOf, horizon_days: horizon, allow_draft: allowDraft};
+        const requestId = await pendingRequest("agent", session.identity.actor_id, body);
+        element("agent-result").hidden = true;
+        const result = await request("/api/agent/run", session, {method: "POST", body: {...body, request_id: requestId}});
+        if (active !== session) return;
+        element("agent-answer").textContent = result.answer;
+        renderTrace(result.trace);
+        element("agent-result").hidden = false;
+        if (result.draft_id) await loadDrafts(session);
+        if (active === session) element("agent-answer").focus();
+        await pendingRequest("agent", session.identity.actor_id, body, requestId);
+        return result.draft_id ? "助手已生成草案，请切换审批人确认。" : "助手查询完成。";
+      });
+    });
+
+    request("/healthz", null).then((health) => {
+      modelConfigured = health.model_configured === true;
+      optionalModel();
+    }).catch(() => {});
+  </script>
+</body>
+</html>

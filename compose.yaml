@@ -1,0 +1,49 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: procureflow
+      MYSQL_USER: procureflow
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run scripts/demo_env.py first}
+      MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+    volumes:
+      - inventory:/var/lib/mysql
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD=$$MYSQL_PASSWORD mysql -h 127.0.0.1 -u $$MYSQL_USER -D $$MYSQL_DATABASE -e "SELECT 1" >/dev/null']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  erp:
+    build: .
+    command: [/app/.venv/bin/uvicorn, 'procureflow.mock_erp:app', --host, 0.0.0.0, --port, '9001']
+    environment:
+      PROCUREFLOW_ERP_TOKEN: ${PROCUREFLOW_ERP_TOKEN:?Run scripts/demo_env.py first}
+      PROCUREFLOW_ERP_DATABASE_URL: sqlite:////data/erp.sqlite3
+    volumes:
+      - erp_receipts:/data
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:9001/healthz", timeout=2)']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+  app:
+    build: .
+    environment:
+      PROCUREFLOW_DATABASE_URL: mysql+pymysql://procureflow:${MYSQL_PASSWORD:?Run scripts/demo_env.py first}@mysql/procureflow?charset=utf8mb4
+      PROCUREFLOW_BUYER_TOKEN: ${PROCUREFLOW_BUYER_TOKEN:?Run scripts/demo_env.py first}
+      PROCUREFLOW_APPROVER_TOKEN: ${PROCUREFLOW_APPROVER_TOKEN:?Run scripts/demo_env.py first}
+      PROCUREFLOW_ERP_URL: http://erp:9001
+      PROCUREFLOW_ERP_TOKEN: ${PROCUREFLOW_ERP_TOKEN:?Run scripts/demo_env.py first}
+      PROCUREFLOW_MODEL_URL: ${PROCUREFLOW_MODEL_URL:-}
+      PROCUREFLOW_MODEL_API_KEY: ${PROCUREFLOW_MODEL_API_KEY:-}
+      PROCUREFLOW_MODEL_NAME: ${PROCUREFLOW_MODEL_NAME:-}
+    ports:
+      - 127.0.0.1:8000:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      erp:
+        condition: service_healthy
+volumes:
+  inventory:
+  erp_receipts:

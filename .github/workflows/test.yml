@@ -1,0 +1,52 @@
+name: ProcureFlow tests
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+      - name: Install locked dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/uv-bootstrap"
+          "$RUNNER_TEMP/uv-bootstrap/bin/python" -m pip install uv==0.13.0
+          printf '%s\n' "$RUNNER_TEMP/uv-bootstrap/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/uv-bootstrap/bin/uv" sync --locked
+      - name: Run offline tests
+        run: uv run --locked pytest -q
+      - name: Run isolated MySQL integration tests
+        run: |
+          password=$(openssl rand -hex 24)
+          printf '::add-mask::%s\n' "$password"
+          docker run -d --name procureflow-ci -p 127.0.0.1::3306 \
+            -e MYSQL_RANDOM_ROOT_PASSWORD=yes -e MYSQL_DATABASE=procureflow_test \
+            -e MYSQL_USER=pf_lab -e MYSQL_PASSWORD="$password" mysql:8.4
+          trap 'docker rm -f procureflow-ci >/dev/null' EXIT
+          port=$(docker port procureflow-ci 3306/tcp | cut -d: -f2)
+          export PROCUREFLOW_TEST_DB_URL="mysql+pymysql://pf_lab:$password@127.0.0.1:$port/procureflow_test?charset=utf8mb4"
+          uv run --locked python - <<'PY'
+          import os
+          import time
+          from sqlalchemy import create_engine, text
+          from sqlalchemy.exc import OperationalError
+
+          engine = create_engine(os.environ["PROCUREFLOW_TEST_DB_URL"], connect_args={"connect_timeout": 2})
+          for attempt in range(60):
+              try:
+                  with engine.connect() as connection:
+                      connection.execute(text("SELECT 1"))
+              except OperationalError:
+                  time.sleep(1)
+              else:
+                  break
+          else:
+              raise SystemExit("MySQL did not become ready")
+          PY
+          uv run --locked pytest -q tests/test_api.py tests/test_agent.py

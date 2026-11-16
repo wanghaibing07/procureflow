@@ -1,0 +1,90 @@
+{
+  "recorded_at_utc": "2026-11-16T15:47:31.788737+00:00",
+  "environment": "VMware aiops-dev01, CentOS Stream 9; dedicated temporary Docker daemon and unique Compose project, synthetic local dataset",
+  "method": "Built from the delivered source with its original compose.yaml. An initial build from an umask 077 extraction exposed unreadable source files for the non-root container user. Dockerfile ownership and permissions were corrected and the same Compose build and startup rerun.",
+  "docker_server": "27.5.1",
+  "compose_version": "2.32.4",
+  "images": {
+    "app": "sha256:951f42786830e1b1f6966a7184ee48a7a126193961ace4a397459cd3378e9386",
+    "erp": "sha256:387a623573972f921bafc13829258aeba30bbcff3740f8ff30b53f9c7fe7f33b",
+    "mysql": "sha256:0f1a0ccadda3a1734d1db557e203ec58621d56fa248525016e85fe4f631311ec"
+  },
+  "source_hash_encoding": "SHA-256 of UTF-8 text with LF line endings",
+  "source_sha256": {
+    "Dockerfile": "db335827620f2e250f924d10d36602376433c56320eec57a3f389817ccca58b3",
+    "compose.yaml": "b64563ad436c1a8941395b28566442e2437a50432a9a7f852892625cd66580df",
+    "procureflow/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "procureflow/agent.py": "63fe7f3f70e687c9850df92b612b567b47b685e7baf8850a6cf8b6909543b40f",
+    "procureflow/api.py": "034c57c2686ea81f5366b3b8f62b01122f2f4db682b95611370ed5383c93948b",
+    "procureflow/catalog.py": "246ac18e7b668cc5f9bc20a52ee3d2c50e6723c0bf30858dcd418d75db2840e2",
+    "procureflow/contracts.py": "6774767bdeda5d33a80c239d74abd2b3ada92ef43cefb54d2f392557583ac806",
+    "procureflow/db.py": "bc5e2fecf6b3f275c31b1338676ab85258f1b6aaa2a022c48c640c6bd3a54ce9",
+    "procureflow/erp.py": "e6a7c93d2e1254290d8d834b2937e29a51c440b804cc0ff39f706e82d724185e",
+    "procureflow/mock_erp.py": "b2843151a935ae42724968e3677a4740062b8e0a2e79a96aa556e90f21b7e293",
+    "procureflow/settings.py": "a0e49b5b65e93b46aaa3dac9ec940d615965e32de0e6cbf3b18521f460eeff7c",
+    "procureflow/web/index.html": "74f14b22d1303abf2da6fdbb0cc4f3b615953fa4bc944236832f66d0e592a9cf",
+    "procureflow/workflow.py": "3426bfa01480fc1ee3b63f78f0c039b37bfffd78532e8c0ebb1509de14c9a701",
+    "pyproject.toml": "d8f97b74434bcf49f4a444078343b31481f102ded599bc53acb9debcd3f569ba",
+    "uv.lock": "f7b968f20e1ea30189db9fe86f45bf5e83ee09020fadcf5382278fa80584b126",
+    "scripts/verify_compose.py": "7967ecb128758e0f46817061f989dbc4b0352b66e9fc03dd223d5cfc15c7b9f8"
+  },
+  "services": {
+    "app": {
+      "state": "running",
+      "health": "",
+      "publishers": [
+        {
+          "URL": "127.0.0.1",
+          "TargetPort": 8000,
+          "PublishedPort": 8000,
+          "Protocol": "tcp"
+        }
+      ]
+    },
+    "erp": {
+      "state": "running",
+      "health": "healthy",
+      "publishers": []
+    },
+    "mysql": {
+      "state": "running",
+      "health": "healthy",
+      "publishers": [
+        {
+          "URL": "",
+          "TargetPort": 3306,
+          "PublishedPort": 0,
+          "Protocol": "tcp"
+        },
+        {
+          "URL": "",
+          "TargetPort": 33060,
+          "PublishedPort": 0,
+          "Protocol": "tcp"
+        }
+      ]
+    }
+  },
+  "source_permissions": "non-root source readable and not writable",
+  "ui": "HTML with sign-in, draft and agent controls served over loopback",
+  "checks": [
+    "PASS: application is ready",
+    "PASS: buyer identity",
+    "PASS: approver identity",
+    "PASS: synthetic inventory and shortages",
+    "PASS: synthetic supplier quotes",
+    "PASS: synthetic replenishment recommendation",
+    "PASS: existing draft list readable",
+    "PASS: draft created with deterministic total",
+    "PASS: same draft returned on retry",
+    "PASS: only one new draft persisted",
+    "PASS: unapproved submission rejected",
+    "PASS: buyer cannot approve",
+    "PASS: approver can approve",
+    "PASS: buyer cannot submit",
+    "PASS: mock ERP receipt and audit trail",
+    "PASS: ERP submission retry returns the original receipt",
+    "PASS: isolated synthetic manual purchasing flow"
+  ],
+  "limitations": "Manual synthetic flow used real MySQL and mock ERP in Compose. UI HTML was served but no browser was attached to this Compose instance. The real model was not configured for this run. GitHub Actions was not executed."
+}

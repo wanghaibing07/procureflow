@@ -1,0 +1,54 @@
+{
+  "recorded_at_utc": "2026-11-16T13:59:49.180575+00:00",
+  "model": "workbuddy/glm-5.3-flash via local Magpie",
+  "source_sha256_lf": "63fe7f3f70e687c9850df92b612b567b47b685e7baf8850a6cf8b6909543b40f",
+  "cases": [
+    {
+      "case": "known-without-quotes",
+      "prompt": "请查 LABEL 的供应商报价，并说明该物料在目录中是否存在。",
+      "answer": "查询结果如下：\n\n- **物料 SKU**：LABEL\n- **目录中是否存在**：存在（该 SKU 在当前目录中已找到）\n- **供应商报价**：目前没有查到任何报价记录（返回的报价列表为空）\n\n需要说明的是：LABEL 在本目录中是存在的，但目前没有供应商报价和交期数据。空报价列表仅表示暂无报价记录，并不代表该物料在目录中缺失。如果您需要，我可以帮您查看库存与补货建议，了解该物料的短缺情况。",
+      "tools": [
+        {
+          "step": 1,
+          "tool": "list_quotes",
+          "outcome": "ok",
+          "elapsed_ms": 0,
+          "result_count": 0
+        }
+      ],
+      "draft_created": false
+    },
+    {
+      "case": "missing-in-catalog",
+      "prompt": "请查 XYZ-NO-SUCH 的供应商报价，并说明该物料在目录中是否存在。",
+      "answer": "查询结果如下：\n\n- **目录存在性**：SKU **XYZ-NO-SUCH** 在当前目录中**不存在**（catalog_sku_found = false）。\n- **供应商报价**：由于该 SKU 不在目录中，没有返回任何报价信息（报价列表为空）。\n\n需要说明的是，这仅表示该 SKU 不在当前系统的目录中，并不代表该物料在其他地方不存在。如果您有其他 SKU 需要查询报价，请告诉我。",
+      "tools": [
+        {
+          "step": 1,
+          "tool": "list_quotes",
+          "outcome": "ok",
+          "elapsed_ms": 0,
+          "result_count": 0
+        }
+      ],
+      "draft_created": false
+    },
+    {
+      "case": "known-with-quotes",
+      "prompt": "请查 BRACKET 的供应商报价，并说明该物料在目录中是否存在。",
+      "answer": "BRACKET 的供应商报价查询结果如下：\n\n**目录状态**：BRACKET 确实存在于当前目录中（catalog_sku_found = true）。\n\n**供应商报价（共 2 家）**：\n\n| 供应商 | 单价 | 交期 | 最小起订量 |\n|---|---|---|---|\n| 准达配件 (S-FAST) | 11.50 | 4 天 | 10 件 |\n| 量惠工业 (S-VOLUME) | 8.00 | 6 天 | 40 件 |\n\n**简要对比**：\n- **量惠工业**单价更低（8.00 vs 11.50），但交期较长（6 天），且最小起订量为 40 件。\n- **准达配件**单价较高，但交期更快（4 天），起订量门槛更低（10 件），适合紧急或小批量需求。\n\n如需查看该物料的库存与短缺情况或补货建议，我可以继续为您查询。",
+      "tools": [
+        {
+          "step": 1,
+          "tool": "list_quotes",
+          "outcome": "ok",
+          "elapsed_ms": 0,
+          "result_count": 2
+        }
+      ],
+      "draft_created": false
+    }
+  ],
+  "limitations": "Three synthetic questions; semantic review required; no production accuracy claim.",
+  "assistant_review": "The coding assistant compared the three synthetic answers against catalog data: LABEL exists without quotes, XYZ-NO-SUCH is absent from this catalog, and BRACKET has two quoted suppliers. All three statements matched this run. This is not independent human review or a statistical success rate."
+}
