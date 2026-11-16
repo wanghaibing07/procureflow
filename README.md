@@ -24,7 +24,7 @@
 
 在 POSIX 系统上，新建的 `.env` 只授予文件所有者读写权限；在 Windows 上文件继承所在目录的 ACL，应确保工作目录只允许获授权的本机用户访问。
 
-已在 VMware 实验室用 Docker Compose 完整构建并启动应用、MySQL 和模拟 ERP，验证权限、采购草案重试、审批及 ERP 回执；[实测记录](evidence/compose-smoke.json)包含源码哈希和检查范围。本次容器验收确认了页面 HTML 可访问，但没有在该容器实例上操作浏览器或配置真实模型。GitHub Actions 工作流尚未实跑。
+已在 VMware 实验室用 Docker Compose 完整构建并启动应用、MySQL 和模拟 ERP，验证权限、采购草案重试、审批及 ERP 回执；[实测记录](evidence/compose-smoke.json)包含源码哈希和检查范围。本次容器验收确认了页面 HTML 可访问，但没有在该容器实例上操作浏览器或配置真实模型。[GitHub Actions 运行记录](https://github.com/wanghaibing07/procureflow/actions/workflows/test.yml)可查看每次提交的自动化测试结果。
 
 ```bash
 python scripts/demo_env.py
