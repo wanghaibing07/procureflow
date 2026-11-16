@@ -435,11 +435,13 @@ try {
     recoveryLabel: document.querySelector("#confirm-draft").textContent}));
   if (mobile.width > mobile.viewport || !mobile.preview || !mobile.recoveryLabel.includes("找回"))
     throw new Error("Recovery preview is not usable at mobile width");
+  const agentRequestsBeforeStorageFailure = attempts.agent.length;
   await page.evaluate(() => { indexedDB.open = () => { throw new Error("Storage disabled"); }; });
   await fillPrompt("A different test request");
   await page.click('#agent-form button[type="submit"]', {label: "检查存储不可用"});
   await page.waitForFunction(() => document.querySelector("#notice").textContent.includes("无法安全保存"));
-  if (attempts.agent.length !== 4) throw new Error("Request was sent without persistent retry protection");
+  if (attempts.agent.length !== agentRequestsBeforeStorageFailure)
+    throw new Error("Request was sent without persistent retry protection");
   console.log({previewBeforeWrite: "pass", responseLossRecovery: "pass", stalePreview: "pass",
     consumedConflictRecovery: "pass", sessionSwitchRace: "pass", migratedEncryptedPreview: "pass", agentReadOnlyRetry: "pass", authoritativeRules: "pass",
     isolation, storage: "opaque and fail-closed", mobile: "390px", syntheticDrafts: drafts.size});

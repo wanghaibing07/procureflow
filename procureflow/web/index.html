@@ -223,7 +223,7 @@
     const horizon = 7;
     const query = new URLSearchParams({as_of: asOf, horizon_days: horizon});
     const states = {draft: "待审批", approved: "已审批", rejected: "已拒绝", submitted: "已提交"};
-    const responses = {supplier_cannot_meet_due: "没有供应商能按期到货", no_supplier_quotes: "没有供应商报价", quantity_exceeds_limit: "数量超过演示单物料上限"};
+    const responses = {supplier_cannot_meet_due: "当前报价的供货周期均超过计划窗口", no_supplier_quotes: "当前目录没有供应商报价", quantity_exceeds_limit: "数量超过演示单物料上限"};
     const actions = {created: "创建草案", approved: "审批通过", rejected: "拒绝草案", submitted: "已提交 ERP"};
     const tools = {list_stock: "查询库存", list_quotes: "查询供应商报价", list_recommendations: "查询补货建议", create_draft: "生成采购草案"};
     const localTime = new Intl.DateTimeFormat("zh-CN", {dateStyle: "short", timeStyle: "medium"});
