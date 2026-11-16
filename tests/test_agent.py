@@ -150,6 +150,8 @@ def test_application_rules_remain_distinct_from_untrusted_model_answer(workflow)
         assert "不能手动指定" in rules["supplier_selection"]
         assert rules["draft_workflow"].index("预览") < rules["draft_workflow"].index("生成草案")
         assert "不能重新审批或提交" in rules["rejected_draft"]
+        assert "合成" in rules["demo_data"] and "模拟 ERP" in rules["demo_data"]
+        assert "不能查询草案" in rules["draft_status"]
         assert result.draft_id is None
         assert not workflow.list_drafts(BUYER)
 

@@ -20,6 +20,8 @@ RULES = [
     {"code": "supplier_selection", "explanation": "供应商和采购数量由系统规则计算，本演示不能手动指定。"},
     {"code": "draft_workflow", "explanation": "采购员先选择物料、查看预览并确认，之后才生成草案；审批人再审批和提交模拟 ERP。"},
     {"code": "rejected_draft", "explanation": "已拒绝的草案不能重新审批或提交；需要重新采购时，应先核对并新建草案。"},
+    {"code": "demo_data", "explanation": "默认演示使用合成库存与报价，并提交到模拟 ERP；这些数据不是实际企业采购依据。"},
+    {"code": "draft_status", "explanation": "助手不能查询草案或审批状态，请在应用的采购草案列表中查看。"},
 ]
 
 

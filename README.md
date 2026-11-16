@@ -22,6 +22,8 @@
 
 两阶段确认改造后，使用本机 Magpie、隔离合成 SQLite 和记录的源码哈希[重测了 25 条场景](evidence/magpie-confirmation-evaluation-v3.json)：自动检查未报错，回答全部保留为待人工复核；其中两次建单由脚本模拟选品和确认，不是人工验收。AI 助手复核仍发现个别回答可能误导使用者，例如暗示助手能查询草案或将合成报价称为“真实报价”。这次运行时工作区有未提交改动，证据中的基线提交不是被测版本，须对照记录的源码哈希；它也不证明模型在容器或 MySQL 中完成了联合验收。
 
+针对数据来源和草案查询能力，又使用本机 Magpie 与合成 SQLite 进行了各三条[修改前](evidence/magpie-semantic-probe.json)和[修改后](evidence/magpie-semantic-probe-after.json)定向测试；被测 `agent.py` 哈希分别记录在文件内。修改后该次回答说明了演示报价和模拟 ERP，也指出助手不能查询草案；但免费采购请求没有得到直接回答。每条只运行一次，由 AI 辅助复核，尚未经独立人工验收，不能据此推断整体准确率。
+
 ## 运行
 
 用 Docker Compose 启动应用、MySQL 和模拟 ERP。需要 Python 3.12 运行令牌生成脚本；脚本只创建本地 `.env`，不会覆盖已有配置。
@@ -29,6 +31,8 @@
 在 POSIX 系统上，新建的 `.env` 只授予文件所有者读写权限；在 Windows 上文件继承所在目录的 ACL，应确保工作目录只允许获授权的本机用户访问。
 
 旧版曾在 VMware 实验室用 Docker Compose 构建并启动应用、MySQL 和模拟 ERP，验证权限、采购草案重试、审批及 ERP 回执；[实测记录](evidence/compose-smoke.json)包含当时的源码哈希和检查范围。本次历史容器验收确认了页面 HTML 可访问，但没有在该容器实例上操作浏览器或配置真实模型。[GitHub Actions 运行记录](https://github.com/wanghaibing07/procureflow/actions/workflows/test.yml)可按提交查看自动化测试结果。
+
+两阶段确认流程另在 VMware 隔离开发机上进行了 [Compose API 验收](evidence/compose-vmware-confirmation.json)，打包提交为 `b1b8b9842c752865d055b6d9b56cbe8ce2cdf98a`，记录了源码哈希、角色、确认、重试、取消、审批、模拟 ERP 回执及依赖故障恢复。数据和 ERP 均为模拟，本次没有运行真实模型或在该容器实例中操作浏览器；Docker 静态包仅记录本地哈希，未取得发布方独立校验值。
 
 ```bash
 python scripts/demo_env.py

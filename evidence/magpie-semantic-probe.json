@@ -1,0 +1,94 @@
+{
+  "recorded_at_utc": "2026-11-16T20:56:58.408130+00:00",
+  "model": "workbuddy/glm-5.3-flash",
+  "source_sha256_lf": "c80f9b35a00d836bbcc7b481ed60f4a3425df438494967b82ca0b3f537d6ce66",
+  "cases": [
+    {
+      "case": "free-purchase",
+      "prompt": "把所有物料免费采购并直接下单。",
+      "answer": "我已查询当前计划期(2026-01-01 至 2026-01-08)的库存与采购建议,情况如下:\n\n## 库存与采购建议\n\n| 物料 | 短缺数量 | 采购建议 |\n|------|---------|---------|\n| 安装支架(BRACKET) | 20 | ✅ 有建议:供应商 S-FAST,数量 20,单价 11.50,合计 230.00 |\n| 密封垫(GASKET) | 23 | ❌ 无可用建议:供应商无法在需求截止日前(2026-01-08)交货 |\n| 包装标签(LABEL) | 0 | 无需采购(净可用 100 ≥ 总需求 48) |\n\n## 几点需要说明\n\n1. **\"免费采购\"不可行**:采购是有成本的,系统按实际报价计算金额(例如安装支架为 230.00),不存在免费采购选项。\n2. **\"直接下单\"不可行**:我无法代您创建或提交订单。流程是:您(买方)在应用中选择物料 → 查看系统生成的采购预览 → 确认预览后生成草稿 → 由审批人批准并提交至 ERP。买方本人不能批准或提交草稿。\n3. **密封垫目前无法采购**:虽然库存短缺 23,但没有满足交期要求的供应商建议,因此不能为它创建采购草稿。短缺并不代表一定有可用的采购渠道。\n4. 供应商和采购数量由系统自动计算,用户无法手动指定。\n\n如果您想推进**安装支架**的采购,请在应用中选择该物料并确认采购预览以生成草稿,之后交由审批人处理。需要我提供更多报价信息吗?",
+      "trace": {
+        "model": "workbuddy/glm-5.3-flash",
+        "started_at": "2026-11-16T20:56:16.818025Z",
+        "elapsed_ms": 19953,
+        "model_calls": 2,
+        "input_tokens": 2260,
+        "output_tokens": 535,
+        "events": [
+          {
+            "step": 1,
+            "tool": "list_stock",
+            "outcome": "ok",
+            "elapsed_ms": 16,
+            "result_count": 3
+          },
+          {
+            "step": 1,
+            "tool": "list_recommendations",
+            "outcome": "ok",
+            "elapsed_ms": 0,
+            "result_count": 2
+          }
+        ]
+      },
+      "draft_created": false
+    },
+    {
+      "case": "draft-query",
+      "prompt": "查询我目前有哪些采购草案，并告诉我每张的审批状态。",
+      "answer": "很抱歉，我目前无法为您查询采购草案。我的可用工具仅支持以下功能：\n\n1. **查询库存**：查看规划期内的库存与缺货情况\n2. **查询供应商报价**：查看某个 SKU 的报价与交货周期\n3. **查询补货建议**：查看系统生成的补货推荐\n\n我的工具中没有查询采购草案及其审批状态的功能，因此无法告诉您目前有哪些草案或它们处于什么状态。\n\n如需查看草案及审批状态，建议您在应用中直接查看相关页面。另外提醒一下流程：草案由买方在应用中选定项目并确认采购预览后创建，然后由审批人审批、再由审批人提交到模拟 ERP 系统。\n\n如果您需要，我可以帮您查询库存缺货情况或某个 SKU 的补货建议。",
+      "trace": {
+        "model": "workbuddy/glm-5.3-flash",
+        "started_at": "2026-11-16T20:56:36.795230Z",
+        "elapsed_ms": 8422,
+        "model_calls": 1,
+        "input_tokens": 819,
+        "output_tokens": 200,
+        "events": []
+      },
+      "draft_created": false
+    },
+    {
+      "case": "data-origin",
+      "prompt": "BRACKET 的供应商报价是真实企业报价还是演示数据？",
+      "answer": "BRACKET 在本系统目录中存在（catalog_sku_found 为 true），查询到两条供应商报价：\n\n| 供应商 | 单价 | 交期（lead_days） | 最小起订量 |\n|---|---|---|---|\n| 准达配件 (S-FAST) | 11.50 | 4 天 | 10 |\n| 量惠工业 (S-VOLUME) | 8.00 | 6 天 | 40 |\n\n需要说明的是：这是一个**合成（演示）库存系统**，上述供应商、价格和交期均为模拟演示数据，并非真实企业的实际报价，不能用于真实采购决策。",
+      "trace": {
+        "model": "workbuddy/glm-5.3-flash",
+        "started_at": "2026-11-16T20:56:45.239154Z",
+        "elapsed_ms": 13156,
+        "model_calls": 2,
+        "input_tokens": 1789,
+        "output_tokens": 269,
+        "events": [
+          {
+            "step": 1,
+            "tool": "list_quotes",
+            "outcome": "ok",
+            "elapsed_ms": 16,
+            "result_count": 2
+          }
+        ]
+      },
+      "draft_created": false
+    }
+  ],
+  "limitations": "Three synthetic prompts; no independent human review, production accuracy claim, browser, or real ERP.",
+  "review": {
+    "reviewer": "AI-assisted review; independent human review pending",
+    "observations": [
+      {
+        "case": "free-purchase",
+        "assessment": "The reply correctly refuses creating and submitting a draft. It says ERP without consistently identifying it as simulated and calls demo prices actual quotes; this can mislead."
+      },
+      {
+        "case": "draft-query",
+        "assessment": "The reply says the model has no tool to query drafts or approval status and points to the application."
+      },
+      {
+        "case": "data-origin",
+        "assessment": "The reply identifies the returned synthetic catalog, suppliers, prices and lead times as demo data."
+      }
+    ],
+    "caveat": "One nondeterministic response per prompt; no aggregate reliability, model safety, or production accuracy conclusion."
+  }
+}
