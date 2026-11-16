@@ -95,7 +95,9 @@ def verify(base, buyer, approver):
         return status, data
 
     status, health = request("GET", "/healthz")
-    expect(status == 200 and health.get("ready") is True, "application is ready")
+    expect(status == 200 and health.get("alive") is True, "application process is alive")
+    status, ready = request("GET", "/readyz")
+    expect(status == 200 and ready.get("ready") is True, "application database is ready")
     for token, role, actor in ((buyer, "buyer", "demo-buyer"), (approver, "approver", "demo-approver")):
         status, identity = request("GET", "/api/me", token)
         expect(status == 200 and identity == {"actor_id": actor, "role": role}, role + " identity")
@@ -127,6 +129,13 @@ def verify(base, buyer, approver):
     previous_ids = {item["draft_id"] for item in previous}
     key = "compose-" + uuid4().hex
     body = {"skus": ["BRACKET"], "as_of": "2026-01-01", "horizon_days": 7}
+    status, _ = request("POST", "/api/drafts", buyer, body, key)
+    expect(status == 409, "draft creation without a preview rejected")
+    status, preview = request("POST", "/api/drafts/preview", buyer, body)
+    expect(status == 200 and preview.get("skus") == ["BRACKET"]
+           and str(preview.get("total")) == "230.00"
+           and isinstance(preview.get("preview_hash"), str), "server-calculated preview")
+    body["preview_hash"] = preview["preview_hash"]
     status, draft = request("POST", "/api/drafts", buyer, body, key)
     try:
         draft_id = str(UUID(draft["draft_id"]))
@@ -138,6 +147,8 @@ def verify(base, buyer, approver):
            "draft created with deterministic total")
     status, replay = request("POST", "/api/drafts", buyer, body, key)
     expect(status == 200 and replay["draft_id"] == draft_id, "same draft returned on retry")
+    status, _ = request("POST", "/api/drafts", buyer, body, "compose-" + uuid4().hex)
+    expect(status == 409, "consumed preview cannot create another draft")
     status, current = request("GET", "/api/drafts", buyer)
     expect(status == 200 and {item["draft_id"] for item in current} - previous_ids == {draft_id},
            "only one new draft persisted")

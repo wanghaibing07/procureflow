@@ -137,6 +137,40 @@ def test_stock_and_quotes_flow_keeps_chat_protocol_and_persists_safe_trace(workf
         assert prompt not in trace and reply not in trace and "fake-api-key" not in trace
 
 
+def test_application_rules_remain_distinct_from_untrusted_model_answer(workflow):
+    # The raw answer is deliberately wrong. The API must preserve provenance:
+    # a client can show the system's rules separately instead of treating the
+    # model's text as an authoritative workflow or delivery commitment.
+    wrong = "2026-01-08 是确认到货日；先建单再预览，自己挑供应商，并重新提交已拒绝单。"
+    with ScriptedModel(workflow, [answer(wrong)]) as script:
+        result = script.run(prompt="请解释采购流程")
+        assert result.answer == wrong
+        rules = {rule.code: rule.explanation for rule in result.authoritative_rules}
+        assert "不是" in rules["required_date"] and "到货日期" in rules["required_date"]
+        assert "不能手动指定" in rules["supplier_selection"]
+        assert rules["draft_workflow"].index("预览") < rules["draft_workflow"].index("生成草案")
+        assert "不能重新审批或提交" in rules["rejected_draft"]
+        assert result.draft_id is None
+        assert not workflow.list_drafts(BUYER)
+
+
+def test_stock_tool_does_not_present_shortage_as_supplier_availability(workflow):
+    # GASKET has a shortage but no supplier that meets the planning window.
+    # The stock tool must not imply the existence of a purchase proposal.
+    with ScriptedModel(workflow, [call("list_stock", "{}"), answer()]) as script:
+        result = script.run(prompt="密封垫的库存风险是多少？")
+        output = tool_output(script, 1)
+        gasket = next(item for item in output["items"] if item["sku"] == "GASKET")
+        assert gasket["shortage"] == 23
+        assert "supplier_id" not in gasket
+        assert "does not establish" in output["availability_semantics"]
+        assert "list_recommendations" in output["availability_semantics"]
+        system_prompt = script.requests[0]["messages"][0]["content"]
+        assert "a buyer cannot approve or submit" in system_prompt
+        assert "Only an approver can approve a draft" in system_prompt
+        assert result.draft_id is None
+
+
 @pytest.mark.parametrize(
     ("sku", "present", "quote_count"),
     [("BRACKET", True, 2), ("LABEL", True, 0), ("MISSING", False, 0)],
@@ -210,10 +244,10 @@ def test_mysql_quote_tool_distinguishes_catalog_membership_from_quotes():
             db.close()
 
 
-@pytest.mark.parametrize(("actor", "allow_draft"), [(BUYER, False), (APPROVER, True)])
-def test_unoffered_write_is_also_blocked_by_executor(workflow, actor, allow_draft):
+@pytest.mark.parametrize("actor", [BUYER, APPROVER])
+def test_unoffered_write_is_also_blocked_by_executor(workflow, actor):
     with ScriptedModel(workflow, [call("create_draft", '{"skus":["BRACKET"]}'), answer()]) as script:
-        result = script.run(actor, allow_draft=allow_draft)
+        result = script.run(actor)
         assert {item["function"]["name"] for item in script.requests[0]["tools"]} == {"list_stock", "list_quotes", "list_recommendations"}
         assert "error" in tool_output(script, 1)
         assert result.trace.events[0].outcome == "rejected"
@@ -221,224 +255,116 @@ def test_unoffered_write_is_also_blocked_by_executor(workflow, actor, allow_draf
     assert workflow.list_drafts(APPROVER) == []
 
 
-def test_draft_values_are_recomputed_and_retry_does_not_duplicate(workflow):
-    request_id = uuid4()
-    tool_call = call("create_draft", '{"skus":["BRACKET","BRACKET"]}')
-    responses = [tool_call, answer(), tool_call, answer()]
-    with ScriptedModel(workflow, responses) as script:
-        first = script.run(allow_draft=True, request_id=request_id)
-        second = script.run(allow_draft=True, request_id=request_id)
-        assert first.draft_id == second.draft_id == tool_output(script, 1)["draft_id"]
-        assert first.trace.events[0].result_count == 1
-        assert len(workflow.list_drafts(BUYER)) == 1
-        draft = workflow.get_draft(BUYER, first.draft_id)
-        assert draft.status == DraftStatus.DRAFT
-        assert draft.lines[0].quantity == 20
-        assert draft.lines[0].supplier_id == "S-FAST"
-        assert str(draft.total) == "230.00"
+@pytest.mark.parametrize("actor", [BUYER, APPROVER])
+def test_legacy_write_opt_in_fails_closed_without_calling_model(workflow, actor):
+    with ScriptedModel(workflow, []) as script:
+        with pytest.raises(AgentError) as error:
+            script.run(actor, allow_draft=True)
+        assert error.value.status_code == 409
+        assert not script.requests
+    assert workflow.list_drafts(APPROVER) == []
 
 
-def test_agent_replay_resolves_original_draft_after_stock_and_quote_change(workflow):
+def test_legacy_committed_draft_recovery_requires_exact_saved_binding(workflow):
     request_id = uuid4()
-    first_call = call("create_draft", '{"skus":["BRACKET"]}')
-    with ScriptedModel(workflow, [first_call, answer(), first_call, answer()]) as script:
-        original = script.run(allow_draft=True, request_id=request_id)
+    original = workflow.create_recommended_draft(BUYER, f"agent:{request_id}", ("BRACKET",), DEMO_DATE, 7)
+    prompt = "retrieve old draft"
+    request_key = hashlib.sha256(json.dumps([BUYER.actor_id, str(request_id)]).encode()).hexdigest()
+    fingerprint = hashlib.sha256(json.dumps(
+        [str(request_id), BUYER.role.value, prompt, DEMO_DATE.isoformat(), 7, True],
+        ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+    with ScriptedModel(workflow, []) as script:
+        # A draft without a saved request fingerprint cannot be silently claimed.
+        with pytest.raises(AgentError) as unknown:
+            script.run(prompt=prompt, allow_draft=True, request_id=request_id)
+        assert unknown.value.status_code == 409
         with workflow.database.transaction() as session:
-            session.get(InventoryItem, "BRACKET").on_hand = 1000
-            session.get(SupplierQuote, ("BRACKET", "S-FAST")).unit_price = 99
-        retry = script.run(allow_draft=True, request_id=request_id)
-        assert retry.draft_id == original.draft_id
-        assert len(script.requests) == 2
-        assert retry.trace.model_calls == 0 and "找回" in retry.answer
-        assert workflow.get_draft(BUYER, retry.draft_id).total == 230
-
-
-def test_agent_replay_binds_original_request_and_skips_model(workflow):
-    request_id = uuid4()
-    with ScriptedModel(workflow, [
-        call("create_draft", '{"skus":["BRACKET"]}'), answer(),
-        call("create_draft", '{"skus":["GASKET"]}'), answer(),
-        call("create_draft", '{"skus":["BRACKET"]}'), answer(),
-    ]) as script:
-        original = script.run(allow_draft=True, request_id=request_id)
-        replay = script.run(allow_draft=True, request_id=request_id)
-        assert original.draft_id is not None
-        assert replay.draft_id == original.draft_id and len(script.requests) == 2
-        for changes in ({"horizon_days": 8}, {"prompt": "different request"}, {"allow_draft": False}):
-            options = {"allow_draft": True, **changes}
+            session.add(AgentRequest(request_key=request_key, fingerprint=fingerprint, state="running", owner=str(uuid4())))
+        for changes in ({"prompt": "other"}, {"horizon_days": 8}):
             with pytest.raises(AgentError) as error:
-                script.run(request_id=request_id, **options)
+                script.run(prompt=changes.get("prompt", prompt), horizon_days=changes.get("horizon_days", 7),
+                           allow_draft=True, request_id=request_id)
             assert error.value.status_code == 409
+        recovered = script.run(prompt=prompt, allow_draft=True, request_id=request_id)
+        assert recovered.draft_id == original.draft_id and recovered.trace.model_calls == 0
+        assert not script.requests
+        with workflow.database.transaction() as session:
+            session.get(AgentRequest, request_key).state = "legacy"
+        with pytest.raises(AgentError) as legacy:
+            script.run(prompt=prompt, allow_draft=True, request_id=request_id)
+        assert legacy.value.status_code == 409
     assert len(workflow.list_drafts(BUYER)) == 1
 
 
-def test_response_lost_retry_does_not_depend_on_model_repeating_write(workflow):
+def test_read_request_replay_is_bound_and_never_reinvokes_model(workflow):
     request_id = uuid4()
-    with ScriptedModel(workflow, [call("create_draft", '{"skus":["BRACKET"]}'), answer(),
-                                  answer("No draft this time")]) as script:
-        first = script.run(allow_draft=True, request_id=request_id)
-        retry = script.run(allow_draft=True, request_id=request_id)
-        assert retry.draft_id == first.draft_id
-        assert retry.draft_id in retry.answer
-        assert retry.trace.model_calls == 0 and not retry.trace.events
-        assert len(script.requests) == 2  # A second stochastic model run cannot hide the draft.
-    assert len(workflow.list_drafts(BUYER)) == 1
+    with ScriptedModel(workflow, [answer("No draft")]) as script:
+        first = script.run(request_id=request_id)
+        retry = script.run(request_id=request_id)
+        assert first.draft_id is None and retry.draft_id is None
+        assert retry.trace.model_calls == 0
+        assert len(script.requests) == 1
+        for changes in ({"prompt": "different request"}, {"horizon_days": 8}):
+            with pytest.raises(AgentError) as error:
+                script.run(request_id=request_id, **changes)
+            assert error.value.status_code == 409
 
 
-def test_same_request_concurrent_run_fails_closed_until_original_finishes(workflow):
-    request_id = uuid4()
-    entered, resume = Event(), Event()
-    with ScriptedModel(workflow, [call("create_draft", '{"skus":["BRACKET"]}'), answer()]) as script:
-        original_complete = script.model.complete
+def test_concurrent_read_request_is_not_invoked_twice(workflow):
+    request_id, entered, resume = uuid4(), Event(), Event()
+    with ScriptedModel(workflow, [answer("No draft")]) as script:
+        complete = script.model.complete
 
         def blocked_complete(messages, tools):
-            if not entered.is_set():
-                entered.set()
-                assert resume.wait(10)
-            return original_complete(messages, tools)
+            entered.set()
+            assert resume.wait(10)
+            return complete(messages, tools)
 
         script.model.complete = blocked_complete
         with ThreadPoolExecutor(max_workers=2) as pool:
-            running = pool.submit(script.run, allow_draft=True, request_id=request_id)
+            running = pool.submit(script.run, request_id=request_id)
             assert entered.wait(10)
             try:
                 with pytest.raises(AgentError) as error:
-                    script.run(allow_draft=True, request_id=request_id)
+                    script.run(request_id=request_id)
                 assert error.value.status_code == 409
             finally:
                 resume.set()
-            first = running.result(timeout=10)
-        retry = script.run(allow_draft=True, request_id=request_id)
-        assert retry.draft_id == first.draft_id
-        assert len(workflow.list_drafts(BUYER)) == 1
-
-
-def test_concurrent_retry_recovers_committed_draft_while_model_is_pending(workflow):
-    request_id = uuid4()
-    entered, resume = Event(), Event()
-    with ScriptedModel(workflow, [call("create_draft", '{"skus":["BRACKET"]}'), answer()]) as script:
-        original_complete = script.model.complete
-        count = 0
-
-        def blocked_complete(messages, tools):
-            nonlocal count
-            count += 1
-            if count == 2:
-                entered.set()  # The create_draft transaction already committed.
-                assert resume.wait(10)
-            return original_complete(messages, tools)
-
-        script.model.complete = blocked_complete
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            running = pool.submit(script.run, allow_draft=True, request_id=request_id)
-            assert entered.wait(10)
-            try:
-                retry = script.run(allow_draft=True, request_id=request_id)
-                assert retry.draft_id and retry.trace.model_calls == 0
-            finally:
-                resume.set()
-            first = running.result(timeout=10)
-        assert first.draft_id == retry.draft_id
-        assert len(workflow.list_drafts(BUYER)) == 1
-
-
-def test_same_uuid_is_isolated_by_buyer(workflow):
-    other = Actor("second-buyer", Role.BUYER)
-    request_id = uuid4()
-    with ScriptedModel(workflow, [call("create_draft", '{"skus":["BRACKET"]}'), answer(),
-                                  call("create_draft", '{"skus":["BRACKET"]}'), answer()]) as script:
-        first = script.run(allow_draft=True, request_id=request_id)
-        second = script.run(other, allow_draft=True, request_id=request_id)
-        assert first.draft_id != second.draft_id
-        assert script.run(allow_draft=True, request_id=request_id).draft_id == first.draft_id
-        assert script.run(other, allow_draft=True, request_id=request_id).draft_id == second.draft_id
-
-
-def test_mysql_agent_replay_and_concurrent_claim(mysql_agent_workflow):
-    """Exercise request binding and both concurrent states on an isolated MySQL database."""
-    workflow = mysql_agent_workflow
-    buyer = Actor(f"mysql-agent-{uuid4()}", Role.BUYER)
-    lost_request, concurrent_request = uuid4(), uuid4()
-    draft_call = call("create_draft", '{"skus":["BRACKET"]}')
-    with ScriptedModel(workflow, [draft_call, httpx.ReadTimeout("simulated lost response"),
-                                  draft_call, answer()]) as script:
-        with pytest.raises(AgentError, match="in time"):
-            script.run(buyer, allow_draft=True, request_id=lost_request)
-        retry = script.run(buyer, allow_draft=True, request_id=lost_request)
-        assert retry.draft_id is not None and retry.trace.model_calls == 0
-        assert len(script.requests) == 2
-        with pytest.raises(AgentError) as changed:
-            script.run(buyer, allow_draft=True, request_id=lost_request, prompt="different request")
-        assert changed.value.status_code == 409
-
-        before_tool, allow_tool, after_commit, allow_answer = Event(), Event(), Event(), Event()
-        original_complete = script.model.complete
-        count = 0
-
-        def gated_complete(messages, tools):
-            nonlocal count
-            count += 1
-            if count == 1:
-                before_tool.set()
-                assert allow_tool.wait(20)
-            elif count == 2:
-                after_commit.set()
-                assert allow_answer.wait(20)
-            return original_complete(messages, tools)
-
-        script.model.complete = gated_complete
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            original = pool.submit(script.run, buyer, allow_draft=True, request_id=concurrent_request)
-            try:
-                assert before_tool.wait(20)
-                with pytest.raises(AgentError) as running:
-                    script.run(buyer, allow_draft=True, request_id=concurrent_request)
-                assert running.value.status_code == 409
-                allow_tool.set()
-                assert after_commit.wait(20)
-                replay = script.run(buyer, allow_draft=True, request_id=concurrent_request)
-                assert replay.draft_id is not None and replay.trace.model_calls == 0
-            finally:
-                allow_tool.set()
-                allow_answer.set()
-            assert original.result(timeout=20).draft_id == replay.draft_id
-        drafts = workflow.list_drafts(buyer)
-        assert {draft.draft_id for draft in drafts} == {retry.draft_id, replay.draft_id}
-        assert len(drafts) == 2
-
-
-def test_completed_read_only_response_replays_without_new_model_side_effect(workflow):
-    request_id = uuid4()
-    with ScriptedModel(workflow, [answer("No draft"), call("create_draft", '{"skus":["BRACKET"]}'), answer()]) as script:
-        first = script.run(allow_draft=True, request_id=request_id)
-        second = script.run(allow_draft=True, request_id=request_id)
-        assert first.draft_id is None and second.draft_id is None
-        assert second.trace.model_calls == 0 and "未生成" in second.answer
+            assert running.result(timeout=10).draft_id is None
         assert len(script.requests) == 1
+
+
+def test_failed_read_can_retry_without_writing_a_draft(workflow):
+    request_id = uuid4()
+    with ScriptedModel(workflow, [httpx.ReadTimeout("upstream"), answer("Retry")]) as script:
+        with pytest.raises(AgentError, match="in time"):
+            script.run(request_id=request_id)
+        assert script.run(request_id=request_id).answer == "Retry"
+        assert len(script.requests) == 2
     assert workflow.list_drafts(BUYER) == []
 
 
-def test_incomplete_run_with_committed_draft_is_recoverable(workflow):
-    request_id = uuid4()
-    with ScriptedModel(workflow, [call("create_draft", '{"skus":["BRACKET"]}'), answer()]) as script:
-        first = script.run(allow_draft=True, request_id=request_id)
-        # Simulate an interrupted process after its draft transaction committed.
-        with workflow.database.transaction() as session:
-            request = session.scalars(select(AgentRequest)).one()
-            request.state, request.owner = "running", str(uuid4())
-        second = script.run(allow_draft=True, request_id=request_id)
-        assert second.draft_id == first.draft_id and second.trace.model_calls == 0
 
 
-def test_old_draft_without_bound_agent_request_fails_closed(workflow):
-    request_id = uuid4()
-    workflow.create_recommended_draft(BUYER, f"agent:{request_id}", ("BRACKET",), DEMO_DATE, 7)
-    with ScriptedModel(workflow, []) as script:
-        for _ in range(2):
-            with pytest.raises(AgentError, match="no saved agent request details") as error:
-                script.run(allow_draft=True, request_id=request_id)
-            assert error.value.status_code == 409
-        assert script.requests == []
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 @pytest.mark.parametrize(("name", "arguments"), [
@@ -450,7 +376,7 @@ def test_old_draft_without_bound_agent_request_fails_closed(workflow):
 ])
 def test_untrusted_tool_calls_cannot_write_outside_contract(workflow, name, arguments):
     with ScriptedModel(workflow, [call(name, arguments), answer()]) as script:
-        result = script.run(allow_draft=True)
+        result = script.run()
         assert result.draft_id is None
         assert "error" in tool_output(script, 1)
         assert result.trace.events[0].outcome == "rejected"
@@ -461,7 +387,7 @@ def test_tool_budget_rejects_last_call_before_side_effect(workflow):
     responses = [call("list_stock", "{}", call_id=f"read-{step}") for step in range(MAX_STEPS - 1)]
     responses.append(call("create_draft", '{"skus":["BRACKET"]}'))
     with ScriptedModel(workflow, responses) as script, pytest.raises(AgentError, match="tool-call budget"):
-        script.run(allow_draft=True)
+        script.run()
     with workflow.database.transaction() as session:
         run = session.scalars(select(AgentRun)).one()
         assert run.status == "failed"
@@ -491,6 +417,9 @@ def test_recommendation_tool_exposes_computed_order_and_unavailable_supplier(wor
         assert rows["BRACKET"]["stock"]["net_available"] == 32
         assert rows["GASKET"]["line"] is None
         assert rows["GASKET"]["reason"] == "supplier_cannot_meet_due"
+        output = tool_output(script, 1)
+        assert "not a confirmed or estimated" in output["date_semantics"]["due_date"]
+        assert "cannot manually choose" in output["selection_policy"]
         assert result.trace.events[0].tool == "list_recommendations"
 
 
@@ -499,7 +428,7 @@ def test_multiple_tool_calls_with_duplicate_ids_are_rejected(workflow):
     second = call("create_draft", '{"skus":["BRACKET"]}', call_id="duplicate")["tool_calls"][0]
     with ScriptedModel(workflow, [{"role": "assistant", "content": None, "tool_calls": [first, second]}]) as script:
         with pytest.raises(AgentError, match="unsupported completion"):
-            script.run(allow_draft=True)
+            script.run()
     assert workflow.list_drafts(BUYER) == []
 
 
@@ -509,7 +438,7 @@ def test_batch_exceeding_tool_budget_has_no_partial_effects(workflow):
              call("list_stock", "{}", call_id="over-budget")["tool_calls"][0]]
     with ScriptedModel(workflow, earlier + [{"role": "assistant", "content": None, "tool_calls": batch}]) as script:
         with pytest.raises(AgentError, match="tool-call budget"):
-            script.run(allow_draft=True)
+            script.run()
     assert workflow.list_drafts(BUYER) == []
 
 
@@ -531,18 +460,6 @@ def test_provider_errors_are_safe_and_never_follow_redirects(workflow, response,
         assert run.trace["input_tokens"] is None
 
 
-def test_retry_after_final_response_timeout_keeps_existing_draft(workflow):
-    request_id = uuid4()
-    tool_call = call("create_draft", '{"skus":["BRACKET"]}')
-    with ScriptedModel(workflow, [tool_call, httpx.ReadTimeout("upstream"), tool_call, answer()]) as script:
-        with pytest.raises(AgentError, match="in time"):
-            script.run(allow_draft=True, request_id=request_id)
-        result = script.run(allow_draft=True, request_id=request_id)
-    with workflow.database.transaction() as session:
-        attempts = list(session.scalars(select(AgentRun).order_by(AgentRun.attempt_id)))
-        assert [attempt.status for attempt in attempts] == ["failed", "replayed"]
-        assert [attempt.draft_id for attempt in attempts] == [result.draft_id, result.draft_id]
-    assert len(workflow.list_drafts(BUYER)) == 1
 
 
 def test_truncated_completion_cannot_create_draft(workflow):
@@ -550,7 +467,7 @@ def test_truncated_completion_cannot_create_draft(workflow):
         "choices": [{"message": call("create_draft", '{"skus":["BRACKET"]}'), "finish_reason": "length"}],
     })
     with ScriptedModel(workflow, [response]) as script, pytest.raises(AgentError, match="unsupported completion"):
-        script.run(allow_draft=True)
+        script.run()
     assert workflow.list_drafts(BUYER) == []
 
 

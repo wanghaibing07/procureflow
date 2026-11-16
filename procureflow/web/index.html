@@ -132,6 +132,7 @@
       <div id="identity" class="identity" hidden>
         <span id="identity-name" class="badge"></span>
         <button type="button" id="switch-user">退出并切换身份</button>
+        <small id="identity-lock" class="muted" hidden>正在处理采购请求，请稍候再切换身份。</small>
       </div>
     </section>
     <p class="notice" id="notice" role="status" aria-live="polite">输入演示令牌后查看库存和草案。</p>
@@ -151,18 +152,54 @@
           </div>
           <form id="new-draft" aria-label="生成采购草案">
             <div class="choices" id="recommendations"></div>
-            <button id="create-draft" class="primary" type="submit" disabled>生成采购草案</button>
+            <button id="create-draft" class="primary" type="submit" disabled>查看采购预览</button>
           </form>
+          <section id="pending-recovery" class="choice" aria-labelledby="pending-title" hidden>
+            <h3 id="pending-title">待确认结果的请求</h3>
+            <p class="muted">这些请求曾由你确认，但浏览器未收到最终结果。请先找回或完成原请求，再决定是否新建草案。</p>
+            <div id="pending-items"></div>
+          </section>
+          <section id="legacy-recovery" class="choice" aria-labelledby="legacy-title" hidden>
+            <h3 id="legacy-title">发现旧版未确认结果的请求</h3>
+            <p>旧版记录无法识别对应物料。请先查看当前采购草案；可能已有草案成功创建。核对后才可继续新建，避免重复。</p>
+            <button id="legacy-ack" type="button">我已核对已有草案</button>
+          </section>
+          <section id="draft-preview" class="choice orderable" aria-labelledby="preview-title" hidden>
+            <h3 id="preview-title" tabindex="-1">确认采购草案</h3>
+            <p id="preview-help" class="muted">请核对物料、供应商、数量和金额；确认后才会创建草案。</p>
+            <ul id="preview-lines"></ul>
+            <p id="preview-total"></p>
+            <div class="row-actions"><button id="confirm-draft" class="primary" type="button">确认并生成草案</button><button id="cancel-preview" type="button">返回修改</button></div>
+            <div id="resolve-conflict" hidden>
+              <p>此请求可能已生成草案，也可能尚未完成。系统会先向服务端核实：若草案已生成则展示已有草案，否则取消该预览；只有服务端确认后才解除本地记录。</p>
+              <label class="checkbox-line"><input id="resolve-ack" type="checkbox">我已核对草案，并同意核实及取消尚未完成的预览</label>
+              <button id="resolve-pending" type="button" disabled>核实并安全解除此请求</button>
+            </div>
+            <section id="recovered-result" aria-labelledby="recovered-title" hidden>
+              <h4 id="recovered-title" tabindex="-1">已找到的草案</h4>
+              <p id="recovered-summary"></p>
+              <ul id="recovered-lines"></ul>
+              <p>请核对服务端返回的草案明细；确认后才会移除本地恢复记录。</p>
+              <button id="recovered-ack" type="button">我已核对，完成恢复</button>
+            </section>
+          </section>
         </section>
         <section class="surface panel" id="agent-panel" aria-labelledby="agent-title" hidden>
-          <div class="section-title"><div><h2 id="agent-title">用自然语言查询</h2><p class="muted">助手可以查询库存和报价。审批、提交仍由审批人手动完成。</p></div></div>
+          <div class="section-title"><div><h2 id="agent-title">用自然语言查询</h2><p class="muted">助手只负责查询和建议；请在补货建议中选择物料并确认后生成草案。</p></div></div>
           <form id="agent-form">
             <label class="field" for="prompt">说说你想查什么<textarea id="prompt" maxlength="2000" required placeholder="未来 7 天哪些物料需要补货？"></textarea></label>
-            <label id="allow-row" class="checkbox-line"><input id="allow-draft" type="checkbox">允许助手生成采购草案</label>
             <button type="submit" class="primary">运行助手</button>
           </form>
           <div id="agent-result" hidden>
+            <h3>助手回答</h3>
+            <p class="muted">模型回答可能有误，请以系统规则、采购预览和草案明细为准。</p>
             <p id="agent-answer" class="agent-answer" tabindex="-1"></p>
+            <section id="system-rules" aria-labelledby="system-rules-title">
+              <h3 id="system-rules-title">系统规则</h3>
+              <p class="muted">以下规则由服务端提供，不由模型决定。</p>
+              <ul id="system-rules-list"></ul>
+              <p id="system-rules-unavailable" class="muted" hidden>当前服务未返回完整的系统规则，请查看采购预览和草案明细。</p>
+            </section>
             <details><summary>查看工具调用记录</summary><div id="agent-trace"></div></details>
           </div>
         </section>
@@ -187,16 +224,56 @@
     const states = {draft: "待审批", approved: "已审批", rejected: "已拒绝", submitted: "已提交"};
     const responses = {supplier_cannot_meet_due: "没有供应商能按期到货", no_supplier_quotes: "没有供应商报价", quantity_exceeds_limit: "数量超过演示单物料上限"};
     const actions = {created: "创建草案", approved: "审批通过", rejected: "拒绝草案", submitted: "已提交 ERP"};
-    const tools = {list_stock: "查询库存", list_quotes: "查询供应商报价", create_draft: "生成采购草案"};
-    const currency = new Intl.NumberFormat("zh-CN", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const tools = {list_stock: "查询库存", list_quotes: "查询供应商报价", list_recommendations: "查询补货建议", create_draft: "生成采购草案"};
     const localTime = new Intl.DateTimeFormat("zh-CN", {dateStyle: "short", timeStyle: "medium"});
     let active = null;
     let signIn = null;
     let modelConfigured = false;
+    let currentPreview = null;
+    let legacyAcknowledged = false;
 
-    // PENDING REQUESTS: Persist only opaque HMAC fingerprints and random UUIDs. The
-    // non-extractable key stays in this browser; no token, prompt or order is stored.
-    async function pendingRequest(kind, actor, body, confirmedId) {
+    // PENDING REQUESTS: HMAC keys index requests. Selection metadata and the
+    // single-use preview credential are encrypted under a non-extractable key.
+    // Same-origin scripts can still use that key; encryption does not stop XSS.
+    const pendingHex = (bytes) => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    const pendingBytes = (text) => new Uint8Array(text.match(/../g).map(pair => parseInt(pair, 16)));
+
+    async function encryptPending(aes, meta) {
+      const nonce = crypto.getRandomValues(new Uint8Array(12));
+      const plaintext = new TextEncoder().encode(JSON.stringify(meta));
+      const ciphertext = await crypto.subtle.encrypt({name: "AES-GCM", iv: nonce}, aes, plaintext);
+      return {id: meta.id, iv: pendingHex(nonce), ciphertext: pendingHex(ciphertext)};
+    }
+
+    async function decryptPending(aes, record) {
+      if (!aes || !record || typeof record !== "object" || !/^[0-9a-f-]{36}$/.test(record.id || "") ||
+          !/^[0-9a-f]{24}$/.test(record.iv || "") || !/^(?:[0-9a-f]{2})+$/.test(record.ciphertext || ""))
+        throw new Error("Invalid pending confirmation");
+      const plaintext = await crypto.subtle.decrypt({name: "AES-GCM", iv: pendingBytes(record.iv)}, aes, pendingBytes(record.ciphertext));
+      const meta = JSON.parse(new TextDecoder().decode(plaintext));
+      if (!meta || meta.id !== record.id || !/^[0-9a-f]{64}$/.test(meta.preview_hash || "") ||
+          (record.preview_hash !== undefined && record.preview_hash !== meta.preview_hash))
+        throw new Error("Invalid pending confirmation");
+      return meta;
+    }
+
+    async function replacePending(db, slot, oldRecord, replacement) {
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction("state", "readwrite"), store = tx.objectStore("state");
+        let replaced = false;
+        const request = store.get(slot);
+        request.onsuccess = () => {
+          if (JSON.stringify(request.result) === JSON.stringify(oldRecord)) {
+            store.put(replacement, slot);
+            replaced = true;
+          }
+        };
+        tx.oncomplete = () => resolve(replaced);
+        tx.onabort = tx.onerror = () => reject(tx.error || new Error("Pending store failed"));
+      });
+    }
+
+    async function pendingRequest(kind, actor, body, confirmedId, previewHash, lookupOnly = false) {
       let db;
       try {
         const opened = indexedDB.open("procureflow-pending-v1", 1);
@@ -207,44 +284,84 @@
           opened.onblocked = () => reject(new Error("Pending store blocked"));
         });
         const candidate = await crypto.subtle.generateKey({name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
-        const hmacKey = await new Promise((resolve, reject) => {
+        const aesCandidate = await crypto.subtle.generateKey({name: "AES-GCM", length: 256}, false, ["encrypt", "decrypt"]);
+        const keys = await new Promise((resolve, reject) => {
           const tx = db.transaction("state", "readwrite");
           const store = tx.objectStore("state");
-          let key;
+          let key, aes;
           const request = store.get("hmac-key");
           request.onsuccess = () => {
             key = request.result || candidate;
             if (!request.result) store.put(key, "hmac-key");
           };
-          tx.oncomplete = () => resolve(key);
+          const aesRequest = store.get("aes-key");
+          aesRequest.onsuccess = () => {
+            aes = aesRequest.result || aesCandidate;
+            if (!aesRequest.result) store.put(aes, "aes-key");
+          };
+          tx.oncomplete = () => resolve({key, aes});
           tx.onabort = tx.onerror = () => reject(tx.error || new Error("Pending store failed"));
         });
         const input = new TextEncoder().encode(JSON.stringify([kind, actor, body]));
-        const signature = await crypto.subtle.sign("HMAC", hmacKey, input);
+        const signature = await crypto.subtle.sign("HMAC", keys.key, input);
         const fingerprint = [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
         const slot = "pending:" + fingerprint;
         const proposed = crypto.randomUUID();
-        return await new Promise((resolve, reject) => {
+        const candidateRecord = kind === "confirmation" && /^[0-9a-f]{64}$/.test(previewHash || "")
+          ? await encryptPending(keys.aes, {actor, body, id: proposed, preview_hash: previewHash}) : null;
+        const lookup = await new Promise((resolve, reject) => {
           const tx = db.transaction("state", "readwrite");
           const store = tx.objectStore("state");
-          let id;
+          let id, alreadyPresent = false;
           const request = store.get(slot);
           request.onsuccess = () => {
             const existing = request.result;
-            if (existing !== undefined && (typeof existing !== "string" || !/^[0-9a-f-]{36}$/.test(existing))) {
+            alreadyPresent = existing !== undefined;
+            const confirmation = kind === "confirmation";
+            const validExisting = confirmation
+              ? existing && typeof existing === "object" && /^[0-9a-f-]{36}$/.test(existing.id)
+                && ((existing.iv && existing.ciphertext) || /^[0-9a-f]{64}$/.test(existing.preview_hash || ""))
+              : (typeof existing === "string" && /^[0-9a-f-]{36}$/.test(existing)) ||
+                (existing && existing.kind === "agent" && /^[0-9a-f-]{36}$/.test(existing.id));
+            if (existing !== undefined && !validExisting) {
               tx.abort();
               return;
             }
-            if (confirmedId !== undefined) {
-              if (existing === confirmedId) store.delete(slot);
+            if (lookupOnly) {
+              id = existing;
+            } else if (confirmedId !== undefined) {
+              if ((typeof existing === "string" ? existing : existing?.id) === confirmedId) store.delete(slot);
             } else {
-              id = existing || proposed;
-              if (!existing) store.put(id, slot);
+              if (confirmation && !existing && !candidateRecord) {
+                tx.abort();
+                return;
+              }
+              const record = existing || (confirmation ? candidateRecord : {kind: "agent", id: proposed});
+              id = confirmation ? record : (typeof record === "string" ? record : record.id);
+              if (!existing) store.put(record, slot);
             }
           };
-          tx.oncomplete = () => resolve(id);
+          tx.oncomplete = () => resolve({stored: id, alreadyPresent});
           tx.onabort = tx.onerror = () => reject(tx.error || new Error("Pending store failed"));
         });
+        const {stored, alreadyPresent} = lookup;
+        if (kind !== "confirmation" || stored === undefined || confirmedId !== undefined) return stored;
+        let meta;
+        if (stored.iv && stored.ciphertext) {
+          meta = await decryptPending(keys.aes, stored);
+          if (meta.actor !== actor || JSON.stringify(meta.body) !== JSON.stringify(body)) throw new Error("Pending request mismatch");
+          if (stored.preview_hash !== undefined) {
+            const encryptedOnly = {id: stored.id, iv: stored.iv, ciphertext: stored.ciphertext};
+            if (!await replacePending(db, slot, stored, encryptedOnly)) throw new Error("Pending request changed");
+          }
+        } else {
+          // Legacy opaque entries become recoverable only when the same actor
+          // and exact request body identify their original HMAC-indexed slot.
+          meta = {actor, body, id: stored.id, preview_hash: stored.preview_hash};
+          const encryptedOnly = await encryptPending(keys.aes, meta);
+          if (!await replacePending(db, slot, stored, encryptedOnly)) throw new Error("Pending request changed");
+        }
+        return {id: meta.id, preview_hash: meta.preview_hash, already_present: alreadyPresent};
       } catch (error) {
         throw new Error("无法安全保存本次请求编号，请允许浏览器使用站点存储后重试。");
       } finally {
@@ -252,6 +369,81 @@
       }
     }
     // END PENDING REQUESTS
+
+    async function loadPending(session) {
+      let db;
+      try {
+        const opened = indexedDB.open("procureflow-pending-v1", 1);
+        opened.onupgradeneeded = () => opened.result.createObjectStore("state");
+        db = await new Promise((resolve, reject) => {
+          opened.onsuccess = () => resolve(opened.result);
+          opened.onerror = () => reject(opened.error);
+          opened.onblocked = () => reject(new Error("Pending store blocked"));
+        });
+        const {keys, values, aes} = await new Promise((resolve, reject) => {
+          const tx = db.transaction("state", "readonly"), store = tx.objectStore("state");
+          const keysRequest = store.getAllKeys(), valuesRequest = store.getAll(), aesRequest = store.get("aes-key");
+          tx.oncomplete = () => resolve({keys: keysRequest.result, values: valuesRequest.result, aes: aesRequest.result});
+          tx.onabort = tx.onerror = () => reject(tx.error || new Error("Pending store failed"));
+        });
+        const items = [];
+        const legacyKeys = [];
+        for (let i = 0; i < keys.length; i++) {
+          if (typeof keys[i] !== "string" || !keys[i].startsWith("pending:")) continue;
+          const value = values[i];
+          if (value?.kind === "agent") continue;
+          if (!value || typeof value !== "object" || !aes || !/^[0-9a-f]{24}$/.test(value.iv || "") ||
+              !/^(?:[0-9a-f]{2})+$/.test(value.ciphertext || "") || !/^[0-9a-f-]{36}$/.test(value.id || "")) {
+            legacyKeys.push(keys[i]);
+            continue;
+          }
+          try {
+            const meta = await decryptPending(aes, value);
+            if (typeof meta.actor !== "string" || !Array.isArray(meta.body?.skus) ||
+                !meta.body.skus.length || meta.body.skus.some(sku => typeof sku !== "string") ||
+                typeof meta.body.as_of !== "string" || !Number.isInteger(meta.body.horizon_days)) {
+              legacyKeys.push(keys[i]);
+              continue;
+            }
+            if (value.preview_hash !== undefined && !await replacePending(db, keys[i], value,
+                {id: value.id, iv: value.iv, ciphertext: value.ciphertext})) {
+              legacyKeys.push(keys[i]);
+              continue;
+            }
+            if (meta.actor === session.identity.actor_id)
+              items.push({body: meta.body, pending: {id: meta.id, preview_hash: meta.preview_hash}});
+          } catch { legacyKeys.push(keys[i]); }
+        }
+        if (active !== session) return;
+        const signature = legacyKeys.sort().join(":");
+        if (session.legacySignature !== undefined && session.legacySignature !== signature) legacyAcknowledged = false;
+        session.legacySignature = signature;
+        const legacy = legacyKeys.length > 0;
+        const container = element("pending-items");
+        container.replaceChildren();
+        for (const item of items) {
+          const row = node("div", undefined, "row-actions");
+          row.append(node("span", item.body.skus.join("、") + " · 计划日期 " + item.body.as_of),
+            action("找回或完成上次草案", () => {
+              if (active !== session || session.busy) return;
+              renderRecovery(item.body.skus, item.pending, item.body);
+              notice("请核对上次未确认结果的请求，再决定是否继续。");
+            }));
+          container.append(row);
+        }
+        element("pending-recovery").hidden = !items.length || session.identity.role !== "buyer";
+        element("legacy-recovery").hidden = !legacy || session.identity.role !== "buyer";
+        session.legacyPending = legacy;
+        controls();
+      } catch {
+        if (active === session) {
+          session.legacyPending = true;
+          legacyAcknowledged = false;
+          element("legacy-recovery").hidden = session.identity.role !== "buyer";
+          controls();
+        }
+      } finally { db?.close(); }
+    }
 
     function node(tag, text, className) {
       const result = document.createElement(tag);
@@ -267,7 +459,9 @@
     }
 
     function amount(value) {
-      return currency.format(String(value));
+      // Monetary values arrive as server-serialized decimal strings. Preserve
+      // them instead of rounding through JavaScript's binary floating point.
+      return "¥" + String(value);
     }
 
     function time(value) {
@@ -282,15 +476,16 @@
     function controls() {
       const busy = !active || active.busy;
       element("workspace").querySelectorAll("button").forEach((button) => button.disabled = busy);
-      element("create-draft").disabled = busy || !selectedSkus().length;
-      element("switch-user").disabled = false;
+      element("create-draft").disabled = busy || !selectedSkus().length || (active?.legacyPending && !legacyAcknowledged);
+      element("resolve-pending").disabled = busy || !element("resolve-ack").checked;
+      element("switch-user").disabled = Boolean(active?.identityLocked);
+      element("identity-lock").hidden = !active?.identityLocked;
     }
 
     function optionalModel() {
       const visible = Boolean(active && modelConfigured);
       element("agent-panel").hidden = !visible;
       element("agent-disabled").hidden = !active || visible;
-      element("allow-row").hidden = active?.identity.role !== "buyer";
     }
 
     function clearSession(message, error = false) {
@@ -305,9 +500,13 @@
       element("identity-name").textContent = "";
       element("token").value = "";
       element("prompt").value = "";
-      element("allow-draft").checked = false;
       element("agent-result").hidden = true;
-      for (const id of ["stock", "recommendations", "drafts", "drafts-help", "agent-answer", "agent-trace"]) element(id).replaceChildren();
+      clearPreview();
+      legacyAcknowledged = false;
+      element("pending-recovery").hidden = true;
+      element("pending-items").replaceChildren();
+      element("legacy-recovery").hidden = true;
+      for (const id of ["stock", "recommendations", "drafts", "drafts-help", "agent-answer", "agent-trace", "system-rules-list"]) element(id).replaceChildren();
       optionalModel();
       notice(message, error);
       element("token").focus();
@@ -334,13 +533,15 @@
       };
       const error = new Error(messages[response.status] || "请求失败，请稍后重试。");
       error.status = response.status;
+      error.detail = typeof data?.detail === "string" ? data.detail : "";
       throw error;
     }
 
-    async function interact(working, handler) {
+    async function interact(working, handler, {lockIdentity = false} = {}) {
       const session = active;
       if (!session || session.busy) return;
       session.busy = true;
+      session.identityLocked = lockIdentity;
       controls();
       notice(working);
       try {
@@ -353,6 +554,7 @@
       } finally {
         if (active === session) {
           session.busy = false;
+          session.identityLocked = false;
           controls();
         }
       }
@@ -401,7 +603,77 @@
       const [stock, recommendations] = await Promise.all([
         request("/api/stock?" + query, session), request("/api/recommendations?" + query, session),
       ]);
-      if (active === session) renderStock(stock, recommendations);
+      if (active === session) {
+        clearPreview();
+        renderStock(stock, recommendations);
+      }
+    }
+
+    function clearPreview() {
+      currentPreview = null;
+      element("draft-preview").hidden = true;
+      element("preview-lines").replaceChildren();
+      element("preview-total").textContent = "";
+      element("preview-help").textContent = "请核对物料、供应商、数量和金额；确认后才会创建草案。";
+      element("confirm-draft").textContent = "确认并生成草案";
+      element("resolve-conflict").hidden = true;
+      element("resolve-ack").checked = false;
+      element("resolve-pending").disabled = true;
+      element("recovered-result").hidden = true;
+      element("recovered-summary").textContent = "";
+      element("recovered-lines").replaceChildren();
+      element("confirm-draft").hidden = false;
+      element("cancel-preview").hidden = false;
+    }
+
+    function renderPreview(preview, skus) {
+      currentPreview = {preview, skus};
+      const lines = element("preview-lines");
+      lines.replaceChildren();
+      for (const line of preview.lines) {
+        lines.append(node("li", line.sku + " · " + line.supplier_id + " · " + line.quantity + " 件 · 单价 " + amount(line.unit_price) + " · 最迟 " + line.due_date));
+      }
+      element("preview-total").textContent = "合计 " + amount(preview.total);
+      element("draft-preview").hidden = false;
+      element("preview-title").focus();
+    }
+
+    function renderRecovery(skus, pending, body = null) {
+      clearPreview();
+      currentPreview = {skus, pending, body};
+      element("preview-help").textContent = "上次确认后结果未知（物料 " + skus.join("、") + "）。继续将使用原请求找回已有草案；如果原请求尚未完成且预览仍有效，也可能生成草案。完成后请核对实际明细。";
+      element("confirm-draft").textContent = "找回或完成上次草案";
+      // Even when the prior HTTP response was simply lost, offer an atomic
+      // server-side cancellation path before anyone starts a fresh preview.
+      element("resolve-conflict").hidden = false;
+      element("draft-preview").hidden = false;
+      element("preview-title").focus();
+    }
+
+    function renderRecoveredDraft(draft, confirmed, body) {
+      currentPreview = {...confirmed, body, resolvedDraft: draft};
+      element("preview-help").textContent = "服务端确认该预览已生成草案。请核对下方明细，再完成恢复。";
+      element("confirm-draft").hidden = true;
+      element("cancel-preview").hidden = true;
+      element("resolve-conflict").hidden = true;
+      element("preview-lines").replaceChildren();
+      element("preview-total").textContent = "";
+      element("recovered-summary").textContent = "草案 " + draft.draft_id + " · 状态 " + (states[draft.status] || draft.status) + " · 合计 " + amount(draft.total);
+      const lines = element("recovered-lines");
+      lines.replaceChildren();
+      for (const line of draft.lines) lines.append(node("li", line.sku + " · " + line.supplier_id + " · " + line.quantity + " 件 · 单价 " + amount(line.unit_price)));
+      element("recovered-result").hidden = false;
+      element("recovered-title").focus();
+    }
+
+    async function displayRecoveredDraft(session, draft, confirmed, body) {
+      if (!draft || typeof draft.draft_id !== "string" || !draft.draft_id ||
+          !Array.isArray(draft.lines) || draft.total == null)
+        throw new Error("服务端未能确认草案详情，原请求恢复记录仍保留。");
+      const drafts = await loadDrafts(session);
+      if (!Array.isArray(drafts) || !drafts.some(item => item.draft_id === draft.draft_id))
+        throw new Error("未能在草案列表中核对返回的草案，原请求恢复记录仍保留。");
+      if (active === session) renderRecoveredDraft(draft, confirmed, body);
     }
 
     function action(label, handler, className) {
@@ -426,7 +698,7 @@
         card.append(head, node("small", "采购员 " + draft.buyer_id + " · 合计 " + amount(draft.total)));
         const lines = node("ul");
         for (const line of draft.lines) {
-          lines.append(node("li", line.sku + " · " + line.quantity + " 件 · " + line.supplier_id));
+          lines.append(node("li", line.sku + " · " + line.quantity + " 件 · " + line.supplier_id + " · 单价 " + amount(line.unit_price)));
         }
         card.append(lines);
         if (draft.erp_reference) {
@@ -461,6 +733,7 @@
     async function loadDrafts(session) {
       const drafts = await request("/api/drafts", session);
       if (active === session) renderDrafts(drafts);
+      return drafts;
     }
 
     function renderTrace(trace) {
@@ -481,6 +754,14 @@
       }
       if (events.childElementCount) container.append(events);
       else container.append(node("p", "这次没有调用业务工具。", "muted"));
+    }
+
+    function renderSystemRules(rules) {
+      const list = element("system-rules-list");
+      list.replaceChildren();
+      const valid = Array.isArray(rules) ? rules.filter(rule => rule && typeof rule.explanation === "string" && rule.explanation.trim()) : [];
+      for (const rule of valid) list.append(node("li", rule.explanation));
+      element("system-rules-unavailable").hidden = Array.isArray(rules) && valid.length > 0 && valid.length === rules.length;
     }
 
     function updateDraft(draft, operation, body, success) {
@@ -519,7 +800,7 @@
         optionalModel();
         element("switch-user").focus();
         await interact("正在读取演示数据…", async (current) => {
-          await Promise.all([loadStock(current), loadDrafts(current)]);
+          await Promise.all([loadStock(current), loadDrafts(current), loadPending(current)]);
           return "已切换为" + role + "。";
         });
       } catch (error) {
@@ -531,7 +812,15 @@
       }
     });
 
-    element("switch-user").addEventListener("click", () => clearSession("已退出。请输入另一个身份的令牌。"));
+    element("switch-user").addEventListener("click", () => {
+      if (active?.identityLocked) return;
+      clearSession("已退出。请输入另一个身份的令牌。");
+    });
+    element("legacy-ack").addEventListener("click", () => {
+      legacyAcknowledged = true;
+      controls();
+      notice("已确认你核对过旧请求的现有草案；旧版记录仍保留在本浏览器中。");
+    });
     element("reload-stock").addEventListener("click", () => interact("正在刷新库存…", async (session) => {
       await loadStock(session);
       return "库存与补货建议已刷新。";
@@ -540,43 +829,143 @@
       await loadDrafts(session);
       return "草案已刷新。";
     }));
-    element("recommendations").addEventListener("change", controls);
+    element("recommendations").addEventListener("change", () => { clearPreview(); controls(); });
     element("new-draft").addEventListener("submit", (event) => {
       event.preventDefault();
       const skus = selectedSkus();
       if (active?.identity.role !== "buyer" || !skus.length) return;
-      interact("正在生成采购草案…", async (session) => {
+      interact("正在计算采购预览…", async (session) => {
         const body = {skus, as_of: asOf, horizon_days: horizon};
-        const key = await pendingRequest("manual", session.identity.actor_id, body);
-        const draft = await request("/api/drafts", session, {method: "POST", body, key});
-        await loadDrafts(session);
+        await loadPending(session);
+        if (session.legacyPending && !legacyAcknowledged) return "请先核对旧版未确认结果的请求。";
+        // Resolve an uncertain previous confirmation before asking for a fresh
+        // quote. Otherwise changed inventory can prevent recovery of a draft
+        // that was already committed while its response was lost.
+        const pending = await pendingRequest("confirmation", session.identity.actor_id, body, undefined, undefined, true);
+        if (pending) {
+          if (active === session) renderRecovery(skus, pending, body);
+          return "上次确认的结果未知，请先找回或完成原请求。";
+        }
+        const preview = await request("/api/drafts/preview", session, {method: "POST", body});
+        if (active === session) renderPreview(preview, skus);
+        return "请核对采购预览，确认后生成草案。";
+      });
+    });
+
+    element("cancel-preview").addEventListener("click", () => {
+      clearPreview();
+      element("create-draft").focus();
+      notice("可重新选择物料并查看预览。");
+    });
+
+    element("resolve-ack").addEventListener("change", controls);
+    element("resolve-pending").addEventListener("click", () => {
+      const confirmed = currentPreview;
+      if (!confirmed?.pending || !element("resolve-ack").checked || active?.identity.role !== "buyer") return;
+      interact("正在向服务端核实请求…", async (session) => {
+        const body = confirmed.body || {skus: confirmed.skus, as_of: asOf, horizon_days: horizon};
+        const resolution = await request("/api/drafts/preview/cancel", session, {method: "POST",
+          body: {preview_hash: confirmed.pending.preview_hash}});
+        if (resolution?.status === "committed") {
+          // Keep the record until the returned draft has been displayed and the
+          // buyer explicitly acknowledges it; switching identities afterwards
+          // cannot silently discard an unseen committed result.
+          await displayRecoveredDraft(session, resolution.draft, confirmed, body);
+          return "服务端确认该预览已有草案，请核对明细后完成恢复。";
+        } else if (resolution?.status !== "cancelled" || resolution.draft != null) {
+          throw new Error("服务端未能确认请求状态，原请求恢复记录仍保留。");
+        }
+        await pendingRequest("confirmation", session.identity.actor_id, body, confirmed.pending.id);
+        await loadPending(session);
+        if (active === session) clearPreview();
+        return "服务端已取消该预览，本地恢复记录已解除；请重新预览后再决定是否新建。";
+      }, {lockIdentity: true});
+    });
+
+    element("recovered-ack").addEventListener("click", () => {
+      const confirmed = currentPreview;
+      if (!confirmed?.pending || !confirmed.resolvedDraft || active?.identity.role !== "buyer") return;
+      interact("正在完成草案恢复…", async (session) => {
+        await pendingRequest("confirmation", session.identity.actor_id, confirmed.body, confirmed.pending.id);
+        await loadPending(session);
         if (active === session) {
-          await pendingRequest("manual", session.identity.actor_id, body, key);
-          element("recommendations").querySelectorAll("input:checked").forEach((input) => input.checked = false);
+          clearPreview();
           element("drafts-title").focus();
         }
-        return "草案 " + draft.draft_id.slice(0, 8) + " 已就绪，可切换审批人确认。";
-      });
+        return "已确认恢复的草案；本地待恢复记录已解除。";
+      }, {lockIdentity: true});
+    });
+
+    element("confirm-draft").addEventListener("click", () => {
+      const confirmed = currentPreview;
+      if (!confirmed || confirmed.resolvedDraft || active?.identity.role !== "buyer") return;
+      interact("正在确认采购草案…", async (session) => {
+        const body = confirmed.body || {skus: confirmed.skus, as_of: asOf, horizon_days: horizon};
+        await loadPending(session);
+        if (!confirmed.pending && session.legacyPending && !legacyAcknowledged)
+          return "请先核对旧版未确认结果的请求。";
+        // Preserve the previously confirmed hash with the request ID so that a
+        // response lost after commit can be recovered even if stock later changes.
+        const pending = confirmed.pending || await pendingRequest("confirmation", session.identity.actor_id, body, undefined, confirmed.preview.preview_hash);
+        if (!confirmed.pending && pending.preview_hash !== confirmed.preview.preview_hash) {
+          // Another tab may have begun an earlier confirmation after this tab
+          // loaded its preview. Do not present a newer quote as approval of it.
+          if (active === session) renderRecovery(confirmed.skus, pending, body);
+          return "另一个页面已有未确认结果的请求，请先明确选择是否找回。";
+        }
+        await loadPending(session);
+        const restoring = Boolean(confirmed.pending || pending.already_present);
+        if (restoring && active === session) notice("正在找回或完成上次草案，请核对返回的实际明细。");
+        let draft;
+        try {
+          draft = await request("/api/drafts", session, {method: "POST", body: {...body, preview_hash: pending.preview_hash}, key: pending.id});
+        } catch (error) {
+          if (error.status === 409 && error.detail === "The purchase preview changed. Review and confirm it again.") {
+            // This single error also covers a preview consumed by another key;
+            // an existing draft cannot be excluded without further inspection.
+            if (active === session) {
+              renderRecovery(confirmed.skus, pending, body);
+              element("resolve-conflict").hidden = false;
+              try { await loadDrafts(session); } catch { /* Keep the original recovery record. */ }
+            }
+            throw new Error("原预览已过期、变化或被使用，草案可能已存在。请核对草案列表；原请求恢复记录仍保留。");
+          }
+          throw error;
+        }
+        if (restoring) {
+          await displayRecoveredDraft(session, draft, {...confirmed, pending}, body);
+          return "已找回上次草案，请核对明细后完成恢复。";
+        }
+        await loadDrafts(session);
+        if (active === session) {
+          await pendingRequest("confirmation", session.identity.actor_id, body, pending.id);
+          await loadPending(session);
+          element("recommendations").querySelectorAll("input:checked").forEach((input) => input.checked = false);
+          clearPreview();
+          element("drafts-title").focus();
+        }
+        return "草案 " + draft.draft_id.slice(0, 8) + " 已就绪，请核对草案明细后切换审批人。";
+      }, {lockIdentity: true});
     });
 
     element("agent-form").addEventListener("submit", (event) => {
       event.preventDefault();
       const prompt = element("prompt").value.trim();
       if (!prompt || !active || !modelConfigured) return;
-      const allowDraft = active.identity.role === "buyer" && element("allow-draft").checked;
       interact("助手正在查询…", async (session) => {
-        const body = {prompt, as_of: asOf, horizon_days: horizon, allow_draft: allowDraft};
+        const body = {prompt, as_of: asOf, horizon_days: horizon, allow_draft: false};
         const requestId = await pendingRequest("agent", session.identity.actor_id, body);
         element("agent-result").hidden = true;
         const result = await request("/api/agent/run", session, {method: "POST", body: {...body, request_id: requestId}});
         if (active !== session) return;
         element("agent-answer").textContent = result.answer;
+        renderSystemRules(result.authoritative_rules);
         renderTrace(result.trace);
         element("agent-result").hidden = false;
         if (result.draft_id) await loadDrafts(session);
         if (active === session) element("agent-answer").focus();
         await pendingRequest("agent", session.identity.actor_id, body, requestId);
-        return result.draft_id ? "助手已生成草案，请切换审批人确认。" : "助手查询完成。";
+        return "助手查询完成。创建草案前请在补货建议中确认物料。";
       });
     });
 

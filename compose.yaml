@@ -43,7 +43,12 @@ services:
       mysql:
         condition: service_healthy
       erp:
-        condition: service_healthy
+        condition: service_started
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/readyz", timeout=8)']
+      interval: 10s
+      timeout: 10s
+      retries: 3
 volumes:
   inventory:
   erp_receipts:

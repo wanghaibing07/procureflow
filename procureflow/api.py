@@ -14,8 +14,9 @@ from .catalog import DEMO_DATE, list_quotes, list_stock, recommend, seed_catalog
 from .contracts import Quote, Recommendation, StockRisk, Value
 from .db import Database
 from .erp import HTTPERPClient
+from .readiness import database_available
 from .settings import Settings
-from .workflow import Actor, DraftView, ERPClient, Role, Workflow, WorkflowError
+from .workflow import Actor, DraftPreview, DraftView, ERPClient, PreviewCancellation, Role, Workflow, WorkflowError
 
 SKU = Annotated[str, StringConstraints(pattern=r"^[A-Z0-9][A-Z0-9_-]{0,39}$")]
 Horizon = Annotated[int, Field(ge=1, le=30)]
@@ -28,6 +29,14 @@ class DraftRequest(Value):
     skus: list[SKU] = Field(min_length=1, max_length=30)
     as_of: AsOf = DEMO_DATE
     horizon_days: Horizon = 7
+
+
+class DraftConfirmation(DraftRequest):
+    preview_hash: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")] | None = None
+
+
+class PreviewCancellationRequest(Value):
+    preview_hash: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
 
 
 class DecisionRequest(Value):
@@ -105,7 +114,12 @@ def create_app(
 
     @application.get("/healthz")
     def health(request: Request) -> dict[str, bool]:
-        return {"ready": True, "model_configured": request.app.state.agent is not None}
+        return {"alive": True, "model_configured": request.app.state.agent is not None}
+
+    @application.get("/readyz")
+    def readiness(request: Request) -> JSONResponse:
+        ready = database_available(request.app.state.db)
+        return JSONResponse({"ready": ready}, status_code=200 if ready else 503)
 
     @application.get("/api/me")
     def identify(actor: ActorIdentity) -> dict[str, str]:
@@ -131,10 +145,21 @@ def create_app(
         with request.app.state.db.transaction() as session:
             return recommend(session, as_of, horizon_days)
 
+    @application.post("/api/drafts/preview", response_model=DraftPreview)
+    def preview_draft(request: Request, data: DraftRequest, actor: ActorIdentity) -> DraftPreview:
+        return request.app.state.workflow.preview_recommended_draft(
+            actor, tuple(data.skus), data.as_of, data.horizon_days
+        )
+
+    @application.post("/api/drafts/preview/cancel", response_model=PreviewCancellation)
+    def cancel_draft_preview(request: Request, data: PreviewCancellationRequest,
+                             actor: ActorIdentity) -> PreviewCancellation:
+        return request.app.state.workflow.cancel_draft_preview(actor, data.preview_hash)
+
     @application.post("/api/drafts", response_model=DraftView)
     def create_draft(
         request: Request,
-        data: DraftRequest,
+        data: DraftConfirmation,
         actor: ActorIdentity,
         idempotency_key: Annotated[str, Header(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")],
     ) -> DraftView:
@@ -142,8 +167,11 @@ def create_app(
             raise HTTPException(403, "Only a buyer can create a draft")
         if len(set(data.skus)) != len(data.skus):
             raise HTTPException(400, "Duplicate SKUs are not allowed")
+        if data.preview_hash is None:
+            raise HTTPException(409, "A purchase preview must be reviewed and confirmed first")
         return request.app.state.workflow.create_recommended_draft(
-            actor, f"manual:{idempotency_key}", tuple(data.skus), data.as_of, data.horizon_days
+            actor, f"manual:{idempotency_key}", tuple(data.skus), data.as_of, data.horizon_days,
+            preview_hash=data.preview_hash,
         )
 
     @application.get("/api/drafts")
@@ -166,7 +194,11 @@ def create_app(
     def agent_run(request: Request, data: AgentRequest, actor: ActorIdentity) -> AgentResult:
         service = request.app.state.agent
         if service is None:
-            raise HTTPException(503, "Model is not configured; manual workflow remains available")
+            if not data.allow_draft:
+                raise HTTPException(503, "Model is not configured; manual workflow remains available")
+            # Legacy recovery is a database-only lookup and must not require a
+            # model connection or expose the old model-write path again.
+            service = AgentService(request.app.state.db, request.app.state.workflow, None)
         return service.run(actor, data.prompt, data.as_of, data.horizon_days, data.allow_draft, data.request_id)
 
     return application

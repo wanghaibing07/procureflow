@@ -15,6 +15,10 @@ class Database:
     def __init__(self, url: str) -> None:
         parsed_url = make_url(url)
         options = {"pool_pre_ping": True}
+        if parsed_url.get_backend_name() == "mysql" and parsed_url.get_driver_name() == "pymysql":
+            # A dependency outage should not leave readiness checks waiting indefinitely.
+            options["connect_args"] = {"connect_timeout": 2, "read_timeout": 2, "write_timeout": 2}
+            options["pool_timeout"] = 3
         if parsed_url.get_backend_name() == "sqlite":
             options["connect_args"] = {"check_same_thread": False}
             if parsed_url.database in (None, "", ":memory:"):
