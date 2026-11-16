@@ -1,0 +1,48 @@
+{
+  "recorded_at_utc": "2026-11-16T17:07:26Z",
+  "tested_commit": "5aa3fa3f67246a23a227ebf9afae6d1c65e8bda9",
+  "source_hash_method": "SHA-256 of file bytes after CRLF-to-LF normalization",
+  "source_sha256": {
+    "procureflow/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "procureflow/agent.py": "63fe7f3f70e687c9850df92b612b567b47b685e7baf8850a6cf8b6909543b40f",
+    "procureflow/api.py": "034c57c2686ea81f5366b3b8f62b01122f2f4db682b95611370ed5383c93948b",
+    "procureflow/catalog.py": "246ac18e7b668cc5f9bc20a52ee3d2c50e6723c0bf30858dcd418d75db2840e2",
+    "procureflow/contracts.py": "6774767bdeda5d33a80c239d74abd2b3ada92ef43cefb54d2f392557583ac806",
+    "procureflow/db.py": "bc5e2fecf6b3f275c31b1338676ab85258f1b6aaa2a022c48c640c6bd3a54ce9",
+    "procureflow/erp.py": "e6a7c93d2e1254290d8d834b2937e29a51c440b804cc0ff39f706e82d724185e",
+    "procureflow/mock_erp.py": "b2843151a935ae42724968e3677a4740062b8e0a2e79a96aa556e90f21b7e293",
+    "procureflow/settings.py": "a0e49b5b65e93b46aaa3dac9ec940d615965e32de0e6cbf3b18521f460eeff7c",
+    "procureflow/web/index.html": "74f14b22d1303abf2da6fdbb0cc4f3b615953fa4bc944236832f66d0e592a9cf",
+    "procureflow/workflow.py": "3426bfa01480fc1ee3b63f78f0c039b37bfffd78532e8c0ebb1509de14c9a701",
+    "pyproject.toml": "d8f97b74434bcf49f4a444078343b31481f102ded599bc53acb9debcd3f569ba",
+    "uv.lock": "f7b968f20e1ea30189db9fe86f45bf5e83ee09020fadcf5382278fa80584b126"
+  },
+  "environment": {
+    "platform": "Windows, local processes on loopback; not Docker Compose",
+    "database": "Existing isolated MySQL 8.4.13 test database with synthetic demo data and pre-existing test records",
+    "model": "workbuddy/glm-5.3-flash via local Magpie, using real model calls",
+    "erp": "Local mock ERP with a separate SQLite receipt store",
+    "browser": "ego-browser; the coding assistant operated the buyer and approver roles through the UI"
+  },
+  "attempts": [
+    {"attempt": 1, "result": "A browser fill operation failed because the element was not visible; no model-assisted draft was created in this attempt."},
+    {"attempt": 2, "result": "The buyer explicitly enabled draft creation in the UI. A real model call created one new draft and showed a successful create-draft tool event. Approval did not run because the browser automation selector was unsupported."},
+    {"attempt": 3, "result": "The services were restarted and the same persisted draft was reopened. The coding assistant acted as approver in the UI, approved the draft and submitted it to the mock ERP without creating another draft."}
+  ],
+  "observations": {
+    "draft_delta_during_model_attempt": 1,
+    "draft": {"sku": "BRACKET", "quantity": 20, "supplier": "S-FAST", "total": "230.00"},
+    "ui_tool_trace": "A successful create-draft event was visible; the complete model response and trace were not retained in this record.",
+    "final_status": "submitted",
+    "audit_events_present": ["created", "approved", "submitted"],
+    "erp_receipt": "The final application record had a nonempty ERP reference; the mock ERP receipt database contained exactly one row whose idempotency key matched the test draft.",
+    "draft_count_during_resume": "Unchanged between the start and end of attempt 3; the original draft remained unique.",
+    "cleanup": "Test-started API, mock ERP, MySQL processes and the browser task space were closed. The synthetic draft and audit remain in the isolated test database."
+  },
+  "limitations": [
+    "This is one synthetic scenario over multiple attempts and a service restart, not an uninterrupted clean-run pass or a production accuracy estimate.",
+    "The ERP was simulated, not an enterprise integration. The coding assistant operated the approver UI; there was no independent human approval or review.",
+    "The mock ERP receipt row was matched by draft idempotency key; its reference was not compared directly with the application's reference.",
+    "Complete terminal output, browser logs, screenshots, model response, and full trace were not saved as an immutable public artifact. This record summarizes observed assertions and does not independently prove the run; the local test script was modified for the resume and is not a complete replay of all attempts."
+  ]
+}
