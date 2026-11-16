@@ -135,7 +135,42 @@
   "assessment": {
     "kind": "AI-assisted review; no independent human review",
     "result": "The model called list_stock but falsely reported LABEL shortage 28 and invented a fourth material. This is not a successful business answer.",
-    "cleanup": "Compose shutdown and daemon stop were independently checked. The subsequent attempt to remove the temporary guest directory returned nonzero; its remaining contents and disk impact are not yet verified.",
+    "cleanup": "Compose shutdown and daemon stop were independently checked. Directory removal returned nonzero. A subsequent read-only guest inspection found the exact root-owned private directory still exists with 9 mount references and 0 related processes; the specific CA key, server key, API key and source .env paths were absent. Other possible secrets were not examined. No further removal was attempted.",
     "scope": "One synthetic API request in the same Compose environment as MySQL and mock ERP; purchasing verification was scripted separately after the model call, with no browser or human UAT."
+  },
+  "post_cleanup_inspection": {
+    "scope": "Read-only guest inspection of the exact experiment directory; no secret contents read and no deletion performed.",
+    "directory_exists": true,
+    "owner_root": true,
+    "mode_private": true,
+    "mount_references_across_namespaces": 9,
+    "mount_scan_complete": true,
+    "related_processes": 0,
+    "process_scan_complete": true,
+    "known_ca_server_and_api_key_paths_present": false,
+    "source_env_path_present": false,
+    "directory_size": "not measured because mount references remain",
+    "receipt": "Unavailable or unreadable in later inspection; prior cleanup verification was recorded before the unsuccessful removal attempt.",
+    "host_afterwards": "Development VM suspended, control node Ready and registry pod Running/Ready."
+  },
+  "post_cleanup_mount_attribution": {
+    "scope": "Read-only /proc mountinfo and process metadata; no directory traversal, unmount, or deletion.",
+    "snapshots_equal": true,
+    "namespaces_observed": 10,
+    "matching_namespaces": 9,
+    "matching_mountinfo_records": 9,
+    "distinct_signatures_not_mount_instances": 1,
+    "match_categories": {
+      "target_descendant": 9
+    },
+    "filesystem_types": {
+      "nsfs": 9
+    },
+    "associated_processes_by_path": 0,
+    "process_scan_complete": true,
+    "namespace_stat_errors": 0,
+    "namespace_mountinfo_unreadable": 0,
+    "limitations": "One signature can occur in multiple namespaces; these counts do not prove a single mount instance or identify processes using the network namespace. Mount state may change after inspection.",
+    "host_afterwards": "Development VM suspended; control node Ready and registry pod Running/Ready."
   }
 }
