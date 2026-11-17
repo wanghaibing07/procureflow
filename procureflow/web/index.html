@@ -190,6 +190,7 @@
             <label class="field" for="prompt">说说你想查什么<textarea id="prompt" maxlength="2000" required placeholder="未来 7 天哪些物料需要补货？"></textarea></label>
             <button type="submit" class="primary">运行助手</button>
           </form>
+          <p id="agent-progress" class="muted" role="status" aria-live="polite" hidden></p>
           <div id="agent-result" hidden>
             <h3>助手回答</h3>
             <p id="agent-evidence" role="status"></p>
@@ -458,6 +459,14 @@
       result.classList.toggle("error", error);
     }
 
+    function agentProgress(session, working) {
+      if (session !== active) return;
+      const progress = element("agent-progress");
+      progress.textContent = working ? "正在查询，请稍候…" : "";
+      progress.hidden = !working;
+      element("agent-form").setAttribute("aria-busy", String(working));
+    }
+
     function amount(value) {
       // Monetary values arrive as server-serialized decimal strings. Preserve
       // them instead of rounding through JavaScript's binary floating point.
@@ -494,6 +503,7 @@
         active.token = "";
       }
       active = null;
+      agentProgress(null, false);
       element("signin").hidden = false;
       element("identity").hidden = true;
       element("workspace").hidden = true;
@@ -974,20 +984,26 @@
       const prompt = element("prompt").value.trim();
       if (!prompt || !active || !modelConfigured) return;
       interact("助手正在查询…", async (session) => {
-        const body = {prompt, as_of: asOf, horizon_days: horizon, allow_draft: false};
-        const requestId = await pendingRequest("agent", session.identity.actor_id, body);
+        agentProgress(session, true);
         element("agent-result").hidden = true;
-        const result = await request("/api/agent/run", session, {method: "POST", body: {...body, request_id: requestId}});
-        if (active !== session) return;
-        element("agent-answer").textContent = result.answer;
-        element("agent-evidence").textContent = evidenceNotice(result.trace);
-        renderSystemRules(result.authoritative_rules);
-        renderTrace(result.trace);
-        element("agent-result").hidden = false;
-        if (result.draft_id) await loadDrafts(session);
-        if (active === session) element("agent-answer").focus();
-        await pendingRequest("agent", session.identity.actor_id, body, requestId);
-        return "助手查询完成。创建草案前请在补货建议中确认物料。";
+        try {
+          const body = {prompt, as_of: asOf, horizon_days: horizon, allow_draft: false};
+          const requestId = await pendingRequest("agent", session.identity.actor_id, body);
+          if (active !== session) return;
+          const result = await request("/api/agent/run", session, {method: "POST", body: {...body, request_id: requestId}});
+          if (active !== session) return;
+          element("agent-answer").textContent = result.answer;
+          element("agent-evidence").textContent = evidenceNotice(result.trace);
+          renderSystemRules(result.authoritative_rules);
+          renderTrace(result.trace);
+          element("agent-result").hidden = false;
+          if (result.draft_id) await loadDrafts(session);
+          if (active === session) element("agent-answer").focus();
+          await pendingRequest("agent", session.identity.actor_id, body, requestId);
+          return "助手查询完成。创建草案前请在补货建议中确认物料。";
+        } finally {
+          agentProgress(session, false);
+        }
       });
     });
 

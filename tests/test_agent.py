@@ -68,7 +68,7 @@ def answer(content="基于库存工具完成调查。"):
     return {"role": "assistant", "content": content}
 
 
-class ScriptedModel:
+class StubModel:
     def __init__(self, workflow, messages):
         self.messages = iter(messages)
         self.requests = []
@@ -113,7 +113,7 @@ def tool_output(script, request_index):
 def test_stock_and_quotes_flow_keeps_chat_protocol_and_persists_safe_trace(workflow):
     prompt = "sensitive demo prompt marker"
     reply = "sensitive model answer marker"
-    with ScriptedModel(workflow, [call("list_stock", "{}"), call("list_quotes", '{"sku":"BRACKET"}', call_id="quote"), answer(reply)]) as script:
+    with StubModel(workflow, [call("list_stock", "{}"), call("list_quotes", '{"sku":"BRACKET"}', call_id="quote"), answer(reply)]) as script:
         result = script.run(prompt=prompt)
         assert result.answer == reply
         assert result.draft_id is None
@@ -142,7 +142,7 @@ def test_application_rules_remain_distinct_from_untrusted_model_answer(workflow)
     # a client can show the system's rules separately instead of treating the
     # model's text as an authoritative workflow or delivery commitment.
     wrong = "2026-01-08 是确认到货日；先建单再预览，自己挑供应商，并重新提交已拒绝单。"
-    with ScriptedModel(workflow, [answer(wrong)]) as script:
+    with StubModel(workflow, [answer(wrong)]) as script:
         result = script.run(prompt="请解释采购流程")
         assert result.answer == wrong
         rules = {rule.code: rule.explanation for rule in result.authoritative_rules}
@@ -159,7 +159,7 @@ def test_application_rules_remain_distinct_from_untrusted_model_answer(workflow)
 def test_stock_tool_does_not_present_shortage_as_supplier_availability(workflow):
     # GASKET has a shortage but no supplier that meets the planning window.
     # The stock tool must not imply the existence of a purchase proposal.
-    with ScriptedModel(workflow, [call("list_stock", "{}"), answer()]) as script:
+    with StubModel(workflow, [call("list_stock", "{}"), answer()]) as script:
         result = script.run(prompt="密封垫的库存风险是多少？")
         output = tool_output(script, 1)
         gasket = next(item for item in output["items"] if item["sku"] == "GASKET")
@@ -178,7 +178,7 @@ def test_stock_tool_does_not_present_shortage_as_supplier_availability(workflow)
     [("BRACKET", True, 2), ("LABEL", True, 0), ("MISSING", False, 0)],
 )
 def test_quote_tool_distinguishes_catalog_membership_from_quotes(workflow, sku, present, quote_count):
-    with ScriptedModel(workflow, [call("list_quotes", json.dumps({"sku": sku})), answer()]) as script:
+    with StubModel(workflow, [call("list_quotes", json.dumps({"sku": sku})), answer()]) as script:
         result = script.run()
         output = tool_output(script, 1)
         assert output["sku"] == sku
@@ -222,7 +222,7 @@ def test_mysql_quote_tool_distinguishes_catalog_membership_from_quotes():
         for sku, present, quote_count, request_id in zip(
             (quoted, unquoted, unknown), (True, True, False), (1, 0, 0), requests
         ):
-            with ScriptedModel(workflow, [call("list_quotes", json.dumps({"sku": sku})), answer()]) as script:
+            with StubModel(workflow, [call("list_quotes", json.dumps({"sku": sku})), answer()]) as script:
                 result = script.run(buyer, request_id=request_id)
                 output = tool_output(script, 1)
                 assert output["sku"] == sku
@@ -248,7 +248,7 @@ def test_mysql_quote_tool_distinguishes_catalog_membership_from_quotes():
 
 @pytest.mark.parametrize("actor", [BUYER, APPROVER])
 def test_unoffered_write_is_also_blocked_by_executor(workflow, actor):
-    with ScriptedModel(workflow, [call("create_draft", '{"skus":["BRACKET"]}'), answer()]) as script:
+    with StubModel(workflow, [call("create_draft", '{"skus":["BRACKET"]}'), answer()]) as script:
         result = script.run(actor)
         assert {item["function"]["name"] for item in script.requests[0]["tools"]} == {"list_stock", "list_quotes", "list_recommendations"}
         assert "error" in tool_output(script, 1)
@@ -259,7 +259,7 @@ def test_unoffered_write_is_also_blocked_by_executor(workflow, actor):
 
 @pytest.mark.parametrize("actor", [BUYER, APPROVER])
 def test_legacy_write_opt_in_fails_closed_without_calling_model(workflow, actor):
-    with ScriptedModel(workflow, []) as script:
+    with StubModel(workflow, []) as script:
         with pytest.raises(AgentError) as error:
             script.run(actor, allow_draft=True)
         assert error.value.status_code == 409
@@ -276,7 +276,7 @@ def test_legacy_committed_draft_recovery_requires_exact_saved_binding(workflow):
         [str(request_id), BUYER.role.value, prompt, DEMO_DATE.isoformat(), 7, True],
         ensure_ascii=False, separators=(",", ":"),
     ).encode("utf-8")).hexdigest()
-    with ScriptedModel(workflow, []) as script:
+    with StubModel(workflow, []) as script:
         # A draft without a saved request fingerprint cannot be silently claimed.
         with pytest.raises(AgentError) as unknown:
             script.run(prompt=prompt, allow_draft=True, request_id=request_id)
@@ -301,7 +301,7 @@ def test_legacy_committed_draft_recovery_requires_exact_saved_binding(workflow):
 
 def test_read_request_replay_is_bound_and_never_reinvokes_model(workflow):
     request_id = uuid4()
-    with ScriptedModel(workflow, [answer("No draft")]) as script:
+    with StubModel(workflow, [answer("No draft")]) as script:
         first = script.run(request_id=request_id)
         retry = script.run(request_id=request_id)
         assert first.draft_id is None and retry.draft_id is None
@@ -315,7 +315,7 @@ def test_read_request_replay_is_bound_and_never_reinvokes_model(workflow):
 
 def test_concurrent_read_request_is_not_invoked_twice(workflow):
     request_id, entered, resume = uuid4(), Event(), Event()
-    with ScriptedModel(workflow, [answer("No draft")]) as script:
+    with StubModel(workflow, [answer("No draft")]) as script:
         complete = script.model.complete
 
         def blocked_complete(messages, tools):
@@ -339,7 +339,7 @@ def test_concurrent_read_request_is_not_invoked_twice(workflow):
 
 def test_failed_read_can_retry_without_writing_a_draft(workflow):
     request_id = uuid4()
-    with ScriptedModel(workflow, [httpx.ReadTimeout("upstream"), answer("Retry")]) as script:
+    with StubModel(workflow, [httpx.ReadTimeout("upstream"), answer("Retry")]) as script:
         with pytest.raises(AgentError, match="in time"):
             script.run(request_id=request_id)
         assert script.run(request_id=request_id).answer == "Retry"
@@ -377,7 +377,7 @@ def test_failed_read_can_retry_without_writing_a_draft(workflow):
     ("submit_draft", '{"draft_id":"some-draft"}'),
 ])
 def test_untrusted_tool_calls_cannot_write_outside_contract(workflow, name, arguments):
-    with ScriptedModel(workflow, [call(name, arguments), answer()]) as script:
+    with StubModel(workflow, [call(name, arguments), answer()]) as script:
         result = script.run()
         assert result.draft_id is None
         assert "error" in tool_output(script, 1)
@@ -388,7 +388,7 @@ def test_untrusted_tool_calls_cannot_write_outside_contract(workflow, name, argu
 def test_tool_budget_rejects_last_call_before_side_effect(workflow):
     responses = [call("list_stock", "{}", call_id=f"read-{step}") for step in range(MAX_STEPS - 1)]
     responses.append(call("create_draft", '{"skus":["BRACKET"]}'))
-    with ScriptedModel(workflow, responses) as script, pytest.raises(AgentError, match="tool-call budget"):
+    with StubModel(workflow, responses) as script, pytest.raises(AgentError, match="tool-call budget"):
         script.run()
     with workflow.database.transaction() as session:
         run = session.scalars(select(AgentRun)).one()
@@ -401,7 +401,7 @@ def test_tool_budget_rejects_last_call_before_side_effect(workflow):
 def test_provider_can_return_multiple_tool_calls_even_when_parallel_disabled(workflow):
     first = call("list_stock", "{}", call_id="stock")["tool_calls"][0]
     second = call("list_quotes", '{"sku":"BRACKET"}', call_id="quote")["tool_calls"][0]
-    with ScriptedModel(workflow, [{"role": "assistant", "content": None, "tool_calls": [first, second]}, answer()]) as script:
+    with StubModel(workflow, [{"role": "assistant", "content": None, "tool_calls": [first, second]}, answer()]) as script:
         result = script.run()
         assert [event.tool for event in result.trace.events] == ["list_stock", "list_quotes"]
         messages = script.requests[1]["messages"]
@@ -410,7 +410,7 @@ def test_provider_can_return_multiple_tool_calls_even_when_parallel_disabled(wor
 
 
 def test_recommendation_tool_exposes_computed_order_and_unavailable_supplier(workflow):
-    with ScriptedModel(workflow, [call("list_recommendations", "{}"), answer()]) as script:
+    with StubModel(workflow, [call("list_recommendations", "{}"), answer()]) as script:
         result = script.run()
         rows = {row["stock"]["sku"]: row for row in tool_output(script, 1)["items"]}
         assert rows["BRACKET"]["line"]["quantity"] == 20
@@ -428,7 +428,7 @@ def test_recommendation_tool_exposes_computed_order_and_unavailable_supplier(wor
 def test_multiple_tool_calls_with_duplicate_ids_are_rejected(workflow):
     first = call("list_stock", "{}", call_id="duplicate")["tool_calls"][0]
     second = call("create_draft", '{"skus":["BRACKET"]}', call_id="duplicate")["tool_calls"][0]
-    with ScriptedModel(workflow, [{"role": "assistant", "content": None, "tool_calls": [first, second]}]) as script:
+    with StubModel(workflow, [{"role": "assistant", "content": None, "tool_calls": [first, second]}]) as script:
         with pytest.raises(AgentError, match="unsupported completion"):
             script.run()
     assert workflow.list_drafts(BUYER) == []
@@ -438,7 +438,7 @@ def test_batch_exceeding_tool_budget_has_no_partial_effects(workflow):
     earlier = [call("list_stock", "{}", call_id=f"read-{index}") for index in range(MAX_STEPS - 2)]
     batch = [call("create_draft", '{"skus":["BRACKET"]}', call_id="draft")["tool_calls"][0],
              call("list_stock", "{}", call_id="over-budget")["tool_calls"][0]]
-    with ScriptedModel(workflow, earlier + [{"role": "assistant", "content": None, "tool_calls": batch}]) as script:
+    with StubModel(workflow, earlier + [{"role": "assistant", "content": None, "tool_calls": batch}]) as script:
         with pytest.raises(AgentError, match="tool-call budget"):
             script.run()
     assert workflow.list_drafts(BUYER) == []
@@ -451,7 +451,7 @@ def test_batch_exceeding_tool_budget_has_no_partial_effects(workflow):
     (httpx.Response(302, headers={"location": "https://wrong-host.invalid/"}), 502),
 ])
 def test_provider_errors_are_safe_and_never_follow_redirects(workflow, response, code):
-    with ScriptedModel(workflow, [response]) as script, pytest.raises(AgentError) as raised:
+    with StubModel(workflow, [response]) as script, pytest.raises(AgentError) as raised:
         script.run()
     assert raised.value.status_code == code
     assert "secret" not in str(raised.value)
@@ -468,13 +468,13 @@ def test_truncated_completion_cannot_create_draft(workflow):
     response = httpx.Response(200, json={
         "choices": [{"message": call("create_draft", '{"skus":["BRACKET"]}'), "finish_reason": "length"}],
     })
-    with ScriptedModel(workflow, [response]) as script, pytest.raises(AgentError, match="unsupported completion"):
+    with StubModel(workflow, [response]) as script, pytest.raises(AgentError, match="unsupported completion"):
         script.run()
     assert workflow.list_drafts(BUYER) == []
 
 
 def test_invalid_planning_window_returns_promptly(workflow):
-    with ScriptedModel(workflow, []) as script, pytest.raises(AgentError) as raised:
+    with StubModel(workflow, []) as script, pytest.raises(AgentError) as raised:
         script.run(horizon_days=31)
     assert raised.value.status_code == 400
     assert script.requests == []

@@ -1,4 +1,4 @@
-"""Run an opt-in, human-reviewed evaluation against an isolated demo instance."""
+"""Run an opt-in evaluation against an isolated demo instance."""
 
 import argparse
 from dataclasses import dataclass
@@ -188,7 +188,7 @@ def evaluate_one(client: httpx.Client, base: str, tokens: dict[str, str], case: 
               "status": "needs_review", "answer": None, "authoritative_rules": None,
               "trace": None, "preview": None, "draft": None,
               "confirmation": "not applicable",
-              "current_expectation": "Model is read-only; an explicitly scripted preview confirmation follows."
+              "current_expectation": "Model is read-only; a BRACKET preview confirmation follows."
               if case.expect_draft else "Model must not create, approve or submit a draft."}
     start = monotonic()
     try:
@@ -226,8 +226,7 @@ def evaluate_one(client: httpx.Client, base: str, tokens: dict[str, str], case: 
             result["checks"].append("Expected a successful quote or recommendation tool call.")
 
         if case.expect_draft and not result["checks"]:
-            # This is a deterministic test operator selection, not a real person's
-            # authorization or proof that the model selected the right SKU.
+            # Select a fixed SKU and check the server preview before confirmation.
             selection = {"skus": ["BRACKET"], "as_of": DATASET_DATE, "horizon_days": DATASET_HORIZON}
             preview = call_api(client, base, "POST", "/api/drafts/preview", token, json=selection)
             if not isinstance(preview, dict) or preview.get("skus") != ["BRACKET"]:
@@ -254,7 +253,7 @@ def evaluate_one(client: httpx.Client, base: str, tokens: dict[str, str], case: 
                     result["checks"].append("Confirmed request did not persist exactly one new draft.")
                 draft = call_api(client, base, "GET", f"/api/drafts/{safe_id}", token)
                 result["draft"] = draft
-                result["confirmation"] = "scripted fixed SKU selection; no independent human approval"
+                result["confirmation"] = "BRACKET preview confirmation submitted"
                 if (not isinstance(draft, dict) or draft.get("status") != "draft"
                         or draft.get("lines") != preview.get("lines")
                         or str(draft.get("total")) != str(preview.get("total"))):

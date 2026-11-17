@@ -125,19 +125,30 @@ try {
   // answered incorrectly. A trace event supports tool execution, not semantic accuracy.
   evidence.stage = 'model_query';
   let modelOk = false;
+  const modelPrompt = videoDir
+    ? '查询安装支架 BRACKET 当前库存和补货缺口。'
+    : '查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。';
+  evidence.model = { prompt: modelPrompt, prompt_source: 'entered_in_browser' };
   const modelUiStarted = performance.now();
   try {
-    await page.locator('#prompt').fill('查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。');
+    await page.locator('#prompt').fill(modelPrompt);
     await videoMoment(page, '#agent-panel');
     const [modelResponse] = await Promise.all([
       page.waitForResponse(isResponse('/api/agent/run'), { timeout: 300000 }),
       page.locator('#agent-form button[type="submit"]').click(),
     ]);
-    evidence.model = { http_status: modelResponse.status(),
+    evidence.model = { ...evidence.model, http_status: modelResponse.status(),
       ui_to_response_elapsed_ms: Math.round(performance.now() - modelUiStarted) };
     // The ID comes from the request actually associated with this response,
     // including an HTTP 504; never substitute a response field or fabricate one.
-    const requestId = modelResponse.request().postDataJSON()?.request_id;
+    const requestBody = modelResponse.request().postDataJSON();
+    evidence.model.prompt = typeof requestBody?.prompt === 'string' ? safeAnswer(requestBody.prompt) : null;
+    evidence.model.prompt_source = 'actual_request';
+    if (requestBody?.prompt !== modelPrompt) {
+      evidence.model.observation = 'unexpected_or_missing_prompt';
+      throw new Error('unexpected_or_missing_prompt');
+    }
+    const requestId = requestBody.request_id;
     if (typeof requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
       evidence.model.observation = 'invalid_or_missing_request_id';
       throw new Error('invalid_agent_request_id');
@@ -151,7 +162,6 @@ try {
           result.request_id.toLowerCase() === evidence.model.request_id, model: safeAnswer(result.trace?.model),
         model_calls: result.trace?.model_calls, elapsed_ms: result.trace?.elapsed_ms,
         input_tokens: result.trace?.input_tokens, output_tokens: result.trace?.output_tokens,
-        prompt: '查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。',
         answer: safeAnswer(result.answer),
         tool_events: events.map(e => ({ step: e.step,
           tool: ['list_stock', 'list_quotes', 'list_recommendations'].includes(e.tool) ? e.tool : '[other]',

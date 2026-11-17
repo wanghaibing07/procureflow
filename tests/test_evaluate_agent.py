@@ -126,7 +126,7 @@ def test_suite_is_bounded_and_never_calls_approval_or_submission():
     assert all(token not in json.dumps(result) for token in app.previews)
     assert sum(method == "POST" and path == "/api/drafts/preview" for method, path in app.calls) == 2
     assert sum(method == "POST" and path == "/api/drafts" for method, path in app.calls) == 6
-    assert all("no independent human approval" in case["confirmation"] for case in result["cases"] if case["draft"])
+    assert all(case["confirmation"] == "BRACKET preview confirmation submitted" for case in result["cases"] if case["draft"])
     assert all("/decision" not in path and "/submit" not in path for _, path in app.calls)
     assert BUYER not in json.dumps(result) and APPROVER not in json.dumps(result)
 
@@ -150,7 +150,7 @@ def test_legacy_write_boundary_failure_is_reported():
     assert result["http_status"] == 200
 
 
-def test_unexpected_agent_draft_stops_scripted_confirmation():
+def test_unexpected_agent_draft_stops_confirmation():
     app = FakeApplication()
     app.unexpected_agent_draft = True
     with client_for(app) as client:
@@ -255,7 +255,7 @@ def test_suite_against_real_app_and_simulated_model(tmp_path):
     draft = result["cases"][10]
     assert draft["draft"]["lines"][0]["sku"] == "BRACKET"
     assert draft["trace"]["input_tokens"] == 30
-    assert "no independent human approval" in draft["confirmation"]
+    assert draft["confirmation"] == "BRACKET preview confirmation submitted"
 
 
 def test_missing_required_stock_tool_is_failed_not_a_pass():
