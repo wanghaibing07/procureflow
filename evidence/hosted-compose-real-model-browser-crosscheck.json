@@ -1,0 +1,97 @@
+{
+  "run_url": "https://github.com/wanghaibing07/procureflow/actions/runs/44011830050",
+  "tested_commit": "d4c4d7986c207553f6b1a9df967196d66b018273",
+  "workflow_result": "success",
+  "environment": "GitHub-hosted Ubuntu; isolated Docker Compose app, MySQL, mock ERP and local model; automated Chromium on the runner; synthetic data",
+  "model": {
+    "name": "Qwen/Qwen2.5-0.5B-Instruct-GGUF q4_k_m",
+    "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+    "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+    "llama_cpp_release": "b12433",
+    "llama_archive_sha256": "209023cfc6061720802c103e5b7ba9f99e9304a3bdcd035fc50c3fba064cb79f",
+    "model_timeout_seconds_per_request": 120,
+    "http_status": 200,
+    "ui_to_response_elapsed_ms": 14819,
+    "request_id": "2d0f226c-4e65-435d-ab36-54bf0925d917",
+    "response_request_id_matches": true,
+    "model": "qwen2.5-0.5b-instruct-q4_k_m",
+    "model_calls": 2,
+    "elapsed_ms": 14743,
+    "input_tokens": 2178,
+    "output_tokens": 391,
+    "prompt": "查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。",
+    "answer": "以下是当前库存和缺口信息：\n\n- **SKU: BRACKET**\n  - **Name:** 安装支架\n  - **On Hand:** 25\n  - **Reserved:** 8\n  - **Inbound By Due:** 15\n  - **Forecast Demand:** 42\n  - **Safety Stock:** 10\n  - **Shortage:** 20\n  - **Due Date:** 2026-01-08\n  - **Net Available:** 32\n  - **Total Required:** 52\n\n- **SKU: GASKET**\n  - **Name:** 密封垫\n  - **On Hand:** 5\n  - **Reserved:** 2\n  - **Inbound By Due:** 0\n  - **Forecast Demand:** 21\n  - **Safety Stock:** 5\n  - **Shortage:** 23\n  - **Due Date:** 2026-01-08\n  - **Net Available:** 3\n  - **Total Required:** 26\n\n- **SKU: LABEL**\n  - **Name:** 包装标签\n  - **On Hand:** 120\n  - **Reserved:** 20\n  - **Inbound By Due:** 0\n  - **Forecast Demand:** 28\n  - **Safety Stock:** 20\n  - **Shortage:** 0\n  - **Due Date:** 2026-01-08\n  - **Net Available:** 100\n  - **Total Required:** 48\n\n请注意，库存缺货会影响采购计划的执行，并且在没有及时供应商的情况下，无法提供购买建议或供应商。",
+    "tool_events": [
+      {
+        "step": 1,
+        "tool": "list_stock",
+        "outcome": "ok",
+        "elapsed_ms": 2,
+        "result_count": 3
+      }
+    ],
+    "draft_id_is_null": true,
+    "ui_elapsed_ms": 14827,
+    "timing_limitations": "Agent and UI elapsed times include work beyond model inference; none is a pure inference benchmark.",
+    "trace_corroboration": "The harness matched the request ID, completed database Agent run, model call count and successful list_stock event with browser evidence.",
+    "ai_assisted_review": "The listed on-hand, reserved, due-window inbound, forecast, safety stock and shortages match the synthetic catalog; Due Date is not explicitly explained as a demand deadline. The last sentence is conditional about supplier availability; this stock-only query does not establish actual supplier availability. Independent human semantic review remains pending."
+  },
+  "browser_business_checks": {
+    "automated_actors": [
+      "demo-buyer",
+      "demo-approver"
+    ],
+    "pre_confirmation": "The script observed no draft after the model query or before the automated buyer confirmed the preview.",
+    "preview_and_draft": "Automated Chromium selected BRACKET, displayed and confirmed the server preview; the created draft matched the preview.",
+    "draft_id": "44c86bf9-a133-43dd-bd74-874e69434df5",
+    "sku": "BRACKET",
+    "supplier_id": "S-FAST",
+    "quantity": 20,
+    "unit_price": "11.50",
+    "total": "230.00",
+    "status": "submitted",
+    "erp_reference": "MOCK-626EBEF8FBCD415C8867D86ACEE446B3",
+    "events": [
+      "created",
+      "approved",
+      "submitted"
+    ],
+    "retries": "The repeated confirmation returned the same draft; the repeated ERP submission returned the same reference and audit sequence."
+  },
+  "storage_crosscheck": {
+    "draft_id": "44c86bf9-a133-43dd-bd74-874e69434df5",
+    "receipt": "MOCK-626EBEF8FBCD415C8867D86ACEE446B3",
+    "mysql_draft_count": 1,
+    "mysql_event_count": 3,
+    "erp_receipt_count": 1,
+    "source_commit": "d4c4d7986c207553f6b1a9df967196d66b018273",
+    "script_sha256": "ebcc8861bb7e1f9225749faa363b112910d8b4fd4dc504f0c5f1f52b7b55739a",
+    "draft_id_and_receipt_match": true,
+    "mysql_erp_full_line_fields_compared": [
+      "due_date",
+      "quantity",
+      "sku",
+      "supplier_id",
+      "unit_price"
+    ],
+    "mysql_erp_full_line_match": true,
+    "browser_summary_line_fields_compared": [
+      "sku",
+      "supplier_id",
+      "quantity",
+      "unit_price"
+    ],
+    "browser_due_date_compared": false,
+    "browser_summary_mysql_total_matches_line_calculation": true,
+    "scope": "The harness compared all five MySQL and mock ERP line fields (SKU, supplier, quantity, unit price and due date), draft ID and receipt; compared the browser summary against the first four fields and total. Browser due date was not compared."
+  },
+  "restart_verification": "After restarting the application container, the API returned the same submitted draft and ERP reference.",
+  "tls_and_authentication": "The harness recorded successful authenticated HTTPS and rejection checks for missing authentication, wrong hostname and an untrusted CA.",
+  "cleanup": "The harness reported removal of Compose containers, volumes, networks and project image tags; this does not establish removal of every underlying image or other runner resource.",
+  "limitations": [
+    "Scripted automated checks passed; model semantic quality has not been independently reviewed by a human.",
+    "The buyer and approver were automated identities, not independent human UAT.",
+    "This was GitHub-hosted synthetic Qwen 0.5B, not a VMware or Magpie run.",
+    "This single model response and no actual billing do not establish production accuracy, efficiency or cost."
+  ]
+}
