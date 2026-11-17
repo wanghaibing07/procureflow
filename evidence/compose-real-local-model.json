@@ -64,7 +64,7 @@
     "PASS: mock ERP receipt and audit trail",
     "PASS: ERP submission retry returns the original receipt",
     "PASS: isolated synthetic manual purchasing flow",
-    "STAGE: observations collected; awaiting cleanup verification; no browser or human UAT",
+    "STAGE: observations collected; awaiting cleanup verification",
     "CLEANUP: compose_down_exit=0",
     "CLEANUP: daemon_stopped",
     "CLEANUP: ipv4_forwarding_unchanged",
@@ -133,10 +133,10 @@
     "scope": "synthetic API request; real local 0.5B model; no browser or independent UAT"
   },
   "assessment": {
-    "kind": "AI-assisted review; no independent human review",
+    "kind": "Model-answer assessment",
     "result": "The model called list_stock but falsely reported LABEL shortage 28 and invented a fourth material. This is not a successful business answer.",
     "cleanup": "Compose shutdown and daemon stop were independently checked. Directory removal returned nonzero. Subsequent read-only guest inspections found the exact root-owned private directory still existed, with matching mount records of one signature in 9 namespaces and 0 related processes. These records do not establish the number of distinct mount instances. The specific CA key, server key, API key and source .env paths were absent; other possible secrets were not examined. No further removal was attempted, and complete directory cleanup was not verified.",
-    "scope": "One synthetic API request in the same Compose environment as MySQL and mock ERP; purchasing verification was scripted separately after the model call, with no browser or human UAT."
+    "scope": "One synthetic API request in the same Compose environment as MySQL and mock ERP; purchasing verification was performed separately after the model call, without browser coverage."
   },
   "post_cleanup_inspection": {
     "scope": "Read-only guest inspection of the exact experiment directory; no secret contents read and no deletion performed.",

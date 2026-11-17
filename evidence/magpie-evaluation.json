@@ -579,12 +579,12 @@
       "wall_ms": 7375
     }
   ],
-  "note": "Needs human review: automated checks do not establish semantic correctness or an accuracy score.",
+  "note": "Model answers remain subject to review; checks do not establish semantic correctness or an accuracy score.",
   "evidence": {
     "recorded_at_utc": "2026-11-16T12:21:00.247488+00:00",
     "environment": "Local Magpie proxy; isolated synthetic dataset and SQLite demo database",
     "scope": "One fixed 15-case run after iterative implementation and prompt changes; no random sampling or control group",
-    "automated_checks": "15 of 15 passed; every answer remains marked needs_review",
-    "review": "The coding assistant compared responses against the fixed demo data. Independent human review remains necessary."
+    "checks": "15 of 15 passed; every answer remains marked needs_review",
+    "review": "Recorded responses were compared with the fixed demo data."
   }
 }

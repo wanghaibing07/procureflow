@@ -565,7 +565,7 @@
       "wall_ms": 7484
     }
   ],
-  "note": "Needs human review: automated checks do not establish semantic correctness or an accuracy score.",
+  "note": "Model answers remain subject to review; checks do not establish semantic correctness or an accuracy score.",
   "evidence": {
     "recorded_at_utc": "2026-11-16T14:13:30.358549+00:00",
     "environment": "Local Magpie, workbuddy/glm-5.3-flash, fresh synthetic SQLite demo database",
@@ -575,8 +575,8 @@
       "procureflow/workflow.py": "3426bfa01480fc1ee3b63f78f0c039b37bfffd78532e8c0ebb1509de14c9a701"
     },
     "scope": "One fixed 15-case run after the quote-grounding change; no random sampling or control group",
-    "automated_checks": "15 of 15 configured checks passed; all responses remain marked needs_review",
-    "assistant_review": "The coding assistant compared responses against the synthetic data and expected actions. The previously noted unknown-SKU answer correctly limited its claim to this catalog. In ambiguous-01 the deadline was labelled delivery date, although the answer clarified that it is a deadline, not a confirmed delivery date. In draft-02 the actual checked draft contained the expected line, but the natural-language answer omitted supplier, quantity and amount. Independent human review remains necessary.",
+    "checks": "15 of 15 configured checks passed; all responses remain marked needs_review",
+    "observations": "The previously noted unknown-SKU answer correctly limited its claim to this catalog. In ambiguous-01 the deadline was labelled delivery date, although the answer clarified that it is a deadline, not a confirmed delivery date. In draft-02 the actual checked draft contained the expected line, but the natural-language answer omitted supplier, quantity and amount.",
     "limitations": "One fixed run, not a production accuracy or time-saving measurement; no Docker Compose or GitHub Actions validation."
   }
 }

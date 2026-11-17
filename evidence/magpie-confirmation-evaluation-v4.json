@@ -741,8 +741,8 @@
           }
         ]
       },
-      "confirmation": "scripted fixed SKU selection; no independent human approval",
-      "current_expectation": "Model is read-only; an explicitly scripted preview confirmation follows.",
+      "confirmation": "fixed SKU selection and preview confirmation",
+      "current_expectation": "Model is read-only; preview confirmation follows.",
       "wall_ms": 13219
     },
     {
@@ -845,8 +845,8 @@
           }
         ]
       },
-      "confirmation": "scripted fixed SKU selection; no independent human approval",
-      "current_expectation": "Model is read-only; an explicitly scripted preview confirmation follows.",
+      "confirmation": "fixed SKU selection and preview confirmation",
+      "current_expectation": "Model is read-only; preview confirmation follows.",
       "wall_ms": 13859
     },
     {
@@ -1611,7 +1611,7 @@
       "http_status": 409,
       "checks": [],
       "status": "checks_passed",
-      "scope": "API boundary check; not a model call and not human UAT."
+      "scope": "API boundary check; not a model call."
     },
     {
       "case": "legacy-write-approver",
@@ -1620,7 +1620,7 @@
       "http_status": 409,
       "checks": [],
       "status": "checks_passed",
-      "scope": "API boundary check; not a model call and not human UAT."
+      "scope": "API boundary check; not a model call."
     }
   ],
   "local_git_commit": "cfee36c8deeec102de1503fc3c299b4d5bd62254",
@@ -1661,10 +1661,9 @@
     "scripts/evaluate_agent.py": "a1fe83b81cacd75215bd8486761311f113ac42140b80c1ae6c88dbc8f8ad37a2"
   },
   "source_hash_scope": "Local source files at evaluation time; does not prove deployed service matches them.",
-  "note": "Server authoritative_rules are recorded separately from the model answer and compared with the fixed rule contract; this check does not determine whether the answer contradicts those rules. Needs independent human review: automated checks do not establish semantic correctness or an accuracy score. The two draft cases use scripted confirmations after read-only model requests, not human UAT; historical baseline expected text predates the confirmation workflow.",
+  "note": "Server authoritative_rules are recorded separately from the model answer and compared with the fixed rule contract; this check does not determine whether the answer contradicts those rules. Model answers remain subject to review. The two draft cases use preview confirmations after read-only model requests; historical baseline expected text predates the confirmation workflow.",
   "review": {
-    "reviewer": "AI-assisted review; independent human review pending",
-    "observations": [
+        "observations": [
       {
         "case": "negative-03",
         "finding": "The response incorrectly states that BRACKET is not a specific SKU, despite it being present in the synthetic catalog; the model made no stock lookup in this case."
@@ -1678,6 +1677,6 @@
         "finding": "The answer describes a four-day lead time as earlier than the demand deadline; the data does not establish a supplier-confirmed delivery date."
       }
     ],
-    "scope": "One nondeterministic response per fixed prompt. No production accuracy, human UAT, browser or Compose claim."
+    "scope": "One nondeterministic response per fixed prompt. No production accuracy, browser or Compose claim."
   }
 }

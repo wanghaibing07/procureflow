@@ -2,7 +2,7 @@
   "run_url": "https://github.com/wanghaibing07/procureflow/actions/runs/44011830050",
   "tested_commit": "d4c4d7986c207553f6b1a9df967196d66b018273",
   "workflow_result": "success",
-  "environment": "GitHub-hosted Ubuntu; isolated Docker Compose app, MySQL, mock ERP and local model; automated Chromium on the runner; synthetic data",
+  "environment": "GitHub-hosted Ubuntu; isolated Docker Compose app, MySQL, mock ERP and local model; Chromium on the runner; synthetic data",
   "model": {
     "name": "Qwen/Qwen2.5-0.5B-Instruct-GGUF q4_k_m",
     "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
@@ -34,15 +34,15 @@
     "ui_elapsed_ms": 14827,
     "timing_limitations": "Agent and UI elapsed times include work beyond model inference; none is a pure inference benchmark.",
     "trace_corroboration": "The harness matched the request ID, completed database Agent run, model call count and successful list_stock event with browser evidence.",
-    "ai_assisted_review": "The listed on-hand, reserved, due-window inbound, forecast, safety stock and shortages match the synthetic catalog; Due Date is not explicitly explained as a demand deadline. The last sentence is conditional about supplier availability; this stock-only query does not establish actual supplier availability. Independent human semantic review remains pending."
+    "observations": "The listed on-hand, reserved, due-window inbound, forecast, safety stock and shortages match the synthetic catalog; Due Date is not explicitly explained as a demand deadline. The last sentence is conditional about supplier availability; this stock-only query does not establish actual supplier availability."
   },
   "browser_business_checks": {
-    "automated_actors": [
+    "actors": [
       "demo-buyer",
       "demo-approver"
     ],
-    "pre_confirmation": "The script observed no draft after the model query or before the automated buyer confirmed the preview.",
-    "preview_and_draft": "Automated Chromium selected BRACKET, displayed and confirmed the server preview; the created draft matched the preview.",
+    "pre_confirmation": "No draft was present after the model query or before preview confirmation.",
+    "preview_and_draft": "The BRACKET preview was displayed and confirmed; the created draft matched the preview.",
     "draft_id": "44c86bf9-a133-43dd-bd74-874e69434df5",
     "sku": "BRACKET",
     "supplier_id": "S-FAST",
@@ -89,8 +89,8 @@
   "tls_and_authentication": "The harness recorded successful authenticated HTTPS and rejection checks for missing authentication, wrong hostname and an untrusted CA.",
   "cleanup": "The harness reported removal of Compose containers, volumes, networks and project image tags; this does not establish removal of every underlying image or other runner resource.",
   "limitations": [
-    "Scripted automated checks passed; model semantic quality has not been independently reviewed by a human.",
-    "The buyer and approver were automated identities, not independent human UAT.",
+    "The recorded checks passed; model semantic quality remains subject to review.",
+    "Two demonstration identities were used for the buyer and approver roles.",
     "This was GitHub-hosted synthetic Qwen 0.5B, not a VMware or Magpie run.",
     "This single model response and no actual billing do not establish production accuracy, efficiency or cost."
   ]

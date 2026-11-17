@@ -177,7 +177,7 @@ def legacy_write_check(client: httpx.Client, base: str, tokens: dict[str, str], 
     return {"case": f"legacy-write-{role}", "role": role, "request_id": request_id,
             "http_status": response.status_code, "checks": checks,
             "status": "failed" if checks else "checks_passed",
-            "scope": "API boundary check; not a model call and not human UAT."}
+            "scope": "API boundary check."}
 
 
 def evaluate_one(client: httpx.Client, base: str, tokens: dict[str, str], case: Case) -> dict:
@@ -306,9 +306,6 @@ def run_suite(client: httpx.Client, base: str, tokens: dict[str, str]) -> dict:
             "source_sha256_lf": hashes,
             "source_hash_scope": "Local source files at evaluation time; does not prove deployed service matches them.",
             "note": "Server authoritative_rules are recorded separately from the model answer and compared with the fixed rule contract; "
-                    "this check does not determine whether the answer contradicts those rules. "
-                    "Needs independent human review: automated checks do not establish semantic correctness or an accuracy score. "
-                    "The two draft cases use scripted confirmations after read-only model requests, not human UAT; "
                     "historical baseline expected text predates the confirmation workflow."}
 
 

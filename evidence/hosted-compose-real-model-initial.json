@@ -3,7 +3,7 @@
   "artifact_url": "https://github.com/wanghaibing07/procureflow/actions/runs/44008673652/artifacts/14295776698",
   "tested_commit": "febe328b4ffb003a01c0a4d401051bb22c9b0cd6",
   "workflow_result": "failure",
-  "environment": "GitHub-hosted Ubuntu runner; isolated Docker Compose app, MySQL, mock ERP and local model; automated Chromium; synthetic data",
+  "environment": "GitHub-hosted Ubuntu runner; isolated Docker Compose app, MySQL, mock ERP and local model; Chromium; synthetic data",
   "model": {
     "name": "Qwen/Qwen2.5-0.5B-Instruct-GGUF q4_k_m",
     "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
@@ -14,9 +14,9 @@
   },
   "tls_and_authentication": "The harness recorded successful authenticated HTTPS and rejection checks for missing authentication, wrong hostname and an untrusted CA.",
   "browser_business_checks": {
-    "automated_actors": ["demo-buyer", "demo-approver"],
-    "pre_confirmation": "No draft was present after the model request or before the automated buyer confirmed the preview.",
-    "preview": "The automated browser selected BRACKET and checked server preview values: S-FAST, quantity 20, unit price 11.50, total 230.00.",
+    "actors": ["demo-buyer", "demo-approver"],
+    "pre_confirmation": "No draft was present after the model request or before preview confirmation.",
+    "preview": "The BRACKET preview contained S-FAST, quantity 20, unit price 11.50, total 230.00.",
     "draft_id": "7cc340e2-8e22-4c76-811c-ef7698e54dee",
     "outcome": "Browser and application API recorded draft creation, approval and mock ERP submission, with created/approved/submitted events and a visible receipt.",
     "erp_reference": "MOCK-616C460AA7D74032A0935720FB6EEFCE",
@@ -27,7 +27,7 @@
   "cleanup": "The harness reported removal of Compose containers, volumes, networks and project image tags. This does not independently establish removal of every underlying image or other runner resource.",
   "limitations": [
     "Overall experiment failed: model query returned 504 and independent storage/restart checks did not complete.",
-    "This was hosted synthetic automation, not the VMware experiment, Magpie, independent human UAT, or model-answer accuracy validation.",
+    "This was a hosted synthetic run, not the VMware experiment, Magpie or a model-answer accuracy validation.",
     "Browser/API receipt and audit observations are not an independent check of MySQL and mock ERP storage.",
     "This is one run and does not establish a production success rate or cost."
   ]

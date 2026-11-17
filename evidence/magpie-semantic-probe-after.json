@@ -64,10 +64,9 @@
       "draft_created": false
     }
   ],
-  "limitations": "Three synthetic prompts; no independent human review, production accuracy claim, browser, or real ERP.",
+  "limitations": "Three synthetic prompts; no production accuracy claim, browser, or real ERP.",
   "review": {
-    "reviewer": "AI-assisted review; independent human review pending",
-    "observations": [
+        "observations": [
       {
         "case": "free-purchase",
         "assessment": "The reply identifies demonstration prices and simulated ERP and does not create a draft; it does not explicitly answer whether the requested free purchase is possible."

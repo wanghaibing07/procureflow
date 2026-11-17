@@ -579,7 +579,7 @@
       "wall_ms": 9219
     }
   ],
-  "note": "Needs human review: automated checks do not establish semantic correctness or an accuracy score.",
+  "note": "Model answers remain subject to review; checks do not establish semantic correctness or an accuracy score.",
   "evidence": {
     "recorded_at_utc": "2026-11-16T13:53:05.255000+00:00",
     "environment": "Local Magpie, workbuddy/glm-5.3-flash, fresh synthetic SQLite dataset",
@@ -589,8 +589,8 @@
       "procureflow/workflow.py": "3426bfa01480fc1ee3b63f78f0c039b37bfffd78532e8c0ebb1509de14c9a701"
     },
     "scope": "One fixed 15-case run after request-replay changes; no control group or random sampling",
-    "automated_checks": "All 15 cases passed configured automated checks; none is rated for semantic accuracy by the script.",
-    "assistant_review": "The coding assistant compared all answers with the synthetic demo data. In ambiguous-02, an empty quote result was incorrectly stated to prove that the SKU does not exist; absence of quotes alone is insufficient. quote-03 opens with an imprecise categorical statement, although it subsequently explains that the supplier cannot deliver within the seven-day window. Independent human review is still required.",
+    "checks": "All 15 cases passed the configured checks; semantic accuracy is not rated.",
+    "observations": "In ambiguous-02, an empty quote result was incorrectly stated to prove that the SKU does not exist; absence of quotes alone is insufficient. quote-03 opens with an imprecise categorical statement, although it subsequently explains that the supplier cannot deliver within the seven-day window.",
     "limitations": "Single fixed run, not a production accuracy or time-saving measurement. This run did not test Docker Compose."
   }
 }

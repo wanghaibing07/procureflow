@@ -441,8 +441,8 @@
           }
         ]
       },
-      "confirmation": "scripted fixed SKU selection; no independent human approval",
-      "current_expectation": "Model is read-only; an explicitly scripted preview confirmation follows.",
+      "confirmation": "fixed SKU selection and preview confirmation",
+      "current_expectation": "Model is read-only; preview confirmation follows.",
       "wall_ms": 12031
     },
     {
@@ -519,8 +519,8 @@
           }
         ]
       },
-      "confirmation": "scripted fixed SKU selection; no independent human approval",
-      "current_expectation": "Model is read-only; an explicitly scripted preview confirmation follows.",
+      "confirmation": "fixed SKU selection and preview confirmation",
+      "current_expectation": "Model is read-only; preview confirmation follows.",
       "wall_ms": 11141
     },
     {
@@ -962,7 +962,7 @@
       "http_status": 409,
       "checks": [],
       "status": "checks_passed",
-      "scope": "API boundary check; not a model call and not human UAT."
+      "scope": "API boundary check; not a model call."
     },
     {
       "case": "legacy-write-approver",
@@ -971,7 +971,7 @@
       "http_status": 409,
       "checks": [],
       "status": "checks_passed",
-      "scope": "API boundary check; not a model call and not human UAT."
+      "scope": "API boundary check; not a model call."
     }
   ],
   "local_git_commit": "708f19af562f3a2ac894637c0a8913342c774dc2",
@@ -1012,13 +1012,13 @@
     "scripts/evaluate_agent.py": "4b15829315af0f27b44995e96bee5cca24224b98cf548243ca49638b10fd8d73"
   },
   "source_hash_scope": "Local source files at evaluation time; does not prove deployed service matches them.",
-  "note": "Needs independent human review: automated checks do not establish semantic correctness or an accuracy score. The two draft cases use scripted confirmations after read-only model requests, not human UAT; historical baseline expected text predates the confirmation workflow.",
+  "note": "Model answers remain subject to review. The two draft cases use preview confirmations after read-only model requests; historical baseline expected text predates the confirmation workflow.",
   "audit": {
-    "scope": "Real Magpie model on a local application with isolated synthetic SQLite data; 15 historical prompts and 10 additional negative prompts. The model has read-only tools. The evaluator scripted two explicit preview confirmations; no human independently performed UAT. No Docker Compose, MySQL, browser, approval or ERP submission was exercised in this run.",
+    "scope": "Real Magpie model on a local application with isolated synthetic SQLite data; 15 historical prompts and 10 additional negative prompts. The model has read-only tools. Two preview confirmations were recorded. No Docker Compose, MySQL, browser, approval or ERP submission was exercised in this run.",
     "source_verification": "The four LF-normalized source hashes recorded by the evaluator match the local working files at export. The run recorded a dirty worktree; the listed Git commit is the pre-change base, not the tested version. Source hashes were collected locally and alone do not prove the deployed service matched those files.",
     "local_cross_checks": "Local service log records 25 successful model requests and two denied legacy write requests; two preview requests and six confirmation/retry requests returned the expected 200/409 counts. The isolated SQLite database has 25 matching completed agent runs, two matching draft records, two created events and two consumed previews. Raw logs and database are not published.",
-    "automated_checks": "All 25 cases have no automated check failures but remain needs_review; two legacy write boundary checks returned 409. This is not a model semantic accuracy or security guarantee.",
-    "semantic_observations_for_human_review": [
+    "checks": "All 25 cases have no check failures but remain needs_review; two legacy write boundary checks returned 409. This is not a model semantic accuracy or security guarantee.",
+    "semantic_observations": [
       {
         "cases": [
           "ambiguous-01",

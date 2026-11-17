@@ -2,6 +2,11 @@ name: Hosted Compose real-model browser experiment
 
 on:
   workflow_dispatch:
+    inputs:
+      video_public_key_b64:
+        description: Optional base64-encoded PEM public RSA key for encrypted video review
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -20,6 +25,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Run isolated synthetic experiment
         run: bash scripts/hosted-compose-real-model.sh
+        env:
+          PF_VIDEO_PUBLIC_KEY_B64: ${{ inputs.video_public_key_b64 }}
       - name: Upload reviewed synthetic evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -27,4 +34,12 @@ jobs:
           name: hosted-compose-real-model-${{ github.run_id }}
           path: ${{ runner.temp }}/pf-public-evidence/
           if-no-files-found: warn
+          retention-days: 7
+      - name: Upload encrypted video for private review
+        if: success() && inputs.video_public_key_b64 != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hosted-compose-encrypted-video-${{ github.run_id }}
+          path: ${{ runner.temp }}/pf-encrypted-video/video.pfvideo
+          if-no-files-found: error
           retention-days: 7

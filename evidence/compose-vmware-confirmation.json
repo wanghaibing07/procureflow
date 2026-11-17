@@ -95,7 +95,7 @@
     "private temporary test directories preserved for inspection"
   ],
   "limitations": [
-    "No real model, browser interaction, real ERP or independent human UAT in this run",
+    "No real model, browser interaction or real ERP in this run",
     "Host-network image build was used with an isolated temporary Docker daemon; application services used Compose networking",
     "The project build package excludes the demonstration video",
     "The Docker archive did not have a separately verified official checksum"

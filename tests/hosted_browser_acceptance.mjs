@@ -1,20 +1,62 @@
 // Manual hosted experiment only: fresh synthetic Compose services and a real
-// model configured by the runner. This uses automated roles, not human UAT.
+// model configured by the runner. Buyer and approver use demonstration identities.
 // The harness must separately verify model provenance, TLS, MySQL, ERP storage,
 // and service restart/cleanup; this script only observes the browser and API.
 import { chromium } from 'playwright';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { constants } from 'node:fs';
+import { copyFile, mkdir, realpath, stat, unlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-const { PF_BASE_URL, PF_BUYER_TOKEN, PF_APPROVER_TOKEN, PF_EVIDENCE_DIR } = process.env;
+const { PF_BASE_URL, PF_BUYER_TOKEN, PF_APPROVER_TOKEN, PF_EVIDENCE_DIR, PF_PRIVATE_VIDEO_DIR } = process.env;
 const evidence = {
   status: 'running', stage: 'initialization',
-  environment: 'automated Chromium against an isolated synthetic demo',
-  human_uat: false,
+  environment: 'Chromium against an isolated synthetic demo',
   model_answer_semantics: 'not evaluated; requires independent review',
   checks: {},
 };
-let browser;
+let browser, context, page, video, videoDir;
+
+// Recording is opt-in and may only use a sibling of the private evidence
+// directory inside this run's private scratch directory. It must never be
+// placed directly in the harness's upload directory.
+async function privateVideoDirectory() {
+  if (!PF_PRIVATE_VIDEO_DIR) return null;
+  if (!process.env.RUNNER_TEMP || !isAbsolute(PF_PRIVATE_VIDEO_DIR) || !isAbsolute(PF_EVIDENCE_DIR))
+    throw new Error('invalid_video_directory');
+  const runnerTemp = await realpath(process.env.RUNNER_TEMP);
+  const evidenceDir = await realpath(PF_EVIDENCE_DIR);
+  const parent = dirname(evidenceDir);
+  const relativeParent = relative(runnerTemp, parent);
+  if (!/^pf-private\.[A-Za-z0-9]{8}$/.test(relativeParent) || basename(evidenceDir) !== 'browser-evidence' ||
+      dirname(resolve(PF_PRIVATE_VIDEO_DIR)) !== parent || resolve(PF_PRIVATE_VIDEO_DIR) === evidenceDir)
+    throw new Error('invalid_video_directory');
+  await mkdir(PF_PRIVATE_VIDEO_DIR, { recursive: true, mode: 0o700 });
+  const target = await realpath(PF_PRIVATE_VIDEO_DIR);
+  if (dirname(target) !== parent || target === evidenceDir || target.startsWith(evidenceDir + sep) ||
+      ((await stat(target)).mode & 0o077) !== 0)
+    throw new Error('invalid_video_directory');
+  return target;
+}
+
+// The fixed input opacity is verified before either token fill.
+async function prepareVideoPage(page) {
+  await page.addStyleTag({ content: `
+    #token { opacity: 0 !important; transition: none !important; animation: none !important; }
+  ` });
+}
+async function videoMoment(page, selector, pauseMs = 1500) {
+  if (!videoDir) return;
+  if (selector) await page.locator(selector).scrollIntoViewIfNeeded();
+  await page.waitForTimeout(pauseMs);
+}
+async function checkVideoMask(page) {
+  if (!videoDir) return;
+  const masked = await page.locator('#token').evaluate(el => {
+    const style = getComputedStyle(el);
+    return style.opacity === '0' && el.getAttribute('type') === 'password';
+  });
+  if (!masked) throw new Error('video_mask_failed');
+}
 
 function requireCheck(value, name) {
   if (!value) throw new Error(name);
@@ -48,7 +90,9 @@ try {
     return { status: response.status, data: await response.json() };
   }
   async function signIn(page, token, label) {
+    await checkVideoMask(page);
     await page.locator('#token').fill(token);
+    await checkVideoMask(page);
     await page.locator('#signin button').click();
     await page.waitForFunction(expected => document.querySelector('#identity-name')?.textContent.includes(expected)
       && document.querySelectorAll('#stock tr').length === 3, label, { timeout: 20000 });
@@ -62,11 +106,18 @@ try {
   const before = await api('GET', '/api/drafts', PF_BUYER_TOKEN);
   requireCheck(before.status === 200 && Array.isArray(before.data) && before.data.length === 0, 'empty_synthetic_database');
 
+  videoDir = await privateVideoDirectory();
   browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
-  const page = await context.newPage();
+  context = await browser.newContext(videoDir
+    ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: videoDir, size: { width: 1440, height: 900 } } }
+    : {});
+  page = await context.newPage();
+  video = videoDir ? page.video() : null;
+  if (videoDir && !video) throw new Error('video_initialization_failed');
   page.setDefaultTimeout(20000);
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
+  if (videoDir) await prepareVideoPage(page);
+  await videoMoment(page, '#signin');
   await signIn(page, PF_BUYER_TOKEN, 'demo-buyer');
   await page.locator('#agent-panel').waitFor({ state: 'visible' });
 
@@ -77,6 +128,7 @@ try {
   const modelUiStarted = performance.now();
   try {
     await page.locator('#prompt').fill('查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。');
+    await videoMoment(page, '#agent-panel');
     const [modelResponse] = await Promise.all([
       page.waitForResponse(isResponse('/api/agent/run'), { timeout: 300000 }),
       page.locator('#agent-form button[type="submit"]').click(),
@@ -120,6 +172,19 @@ try {
       observation: evidence.model?.observation || 'browser_observation_failed_or_timed_out; cause unknown' };
   } finally {
     evidence.model = { ...(evidence.model || {}), ui_elapsed_ms: Math.round(performance.now() - modelUiStarted) };
+    if (videoDir) evidence.model.timing_note = 'UI timings include deliberate recording pauses; they are not pure inference time.';
+  }
+  if (videoDir && modelOk) {
+    await videoMoment(page, '#agent-result > h3', 2200);
+    // Keep the original, unedited response visible in successive viewport
+    // positions. The model output itself is never replaced or rewritten.
+    const answerHeight = await page.locator('#agent-answer').evaluate(el => el.getBoundingClientRect().height);
+    for (let i = 0; i < Math.min(20, Math.ceil(answerHeight / 400)); i++) {
+      await page.evaluate(() => window.scrollBy({ top: 400, behavior: 'instant' }));
+      await page.waitForTimeout(1200);
+    }
+    await page.locator('#agent-result details summary').click();
+    await videoMoment(page, '#agent-trace', 2200);
   }
   evidence.checks.model_query_called_read_only_tool = modelOk;
   await writeEvidence();
@@ -128,6 +193,7 @@ try {
   requireCheck(afterModel.status === 200 && afterModel.data.length === 0, 'no_model_draft');
 
   evidence.stage = 'browser_preview';
+  await videoMoment(page, '#recommendations');
   await page.locator('#recommendations input[value="BRACKET"]').check();
   const [previewResponse] = await Promise.all([
     page.waitForResponse(isResponse('/api/drafts/preview')),
@@ -145,6 +211,7 @@ try {
     previewText.includes('20') && previewText.includes('11.50') && previewTotal.includes('230.00'), 'preview_display_matches_synthetic_business_values');
   const beforeConfirmation = await api('GET', '/api/drafts', PF_BUYER_TOKEN);
   requireCheck(beforeConfirmation.status === 200 && beforeConfirmation.data.length === 0, 'no_draft_before_explicit_confirmation');
+  await videoMoment(page, '#draft-preview', 2500);
 
   evidence.stage = 'browser_confirmation';
   const [draftResponse] = await Promise.all([
@@ -162,6 +229,7 @@ try {
     draft.status === 'draft' && draft.buyer_id === 'demo-buyer', 'draft_matches_confirmed_preview');
   await page.waitForFunction(() => document.querySelector('#notice')?.textContent.includes('已就绪'));
   requireCheck((await page.locator('#drafts').innerText()).includes('BRACKET'), 'draft_visible_in_browser');
+  await videoMoment(page, '#drafts', 1800);
 
   // Retry the exact confirmed HTTP request; only the request ID and preview
   // capability remain in memory, never in the exported evidence.
@@ -171,14 +239,21 @@ try {
     afterReplay.data.length === 1 && afterReplay.data[0].draft_id === draft.draft_id, 'draft_retry_is_idempotent');
 
   evidence.stage = 'browser_approval_and_erp';
+  await videoMoment(page, '#switch-user');
   await page.locator('#switch-user').click();
+  await videoMoment(page, '#signin');
   await signIn(page, PF_APPROVER_TOKEN, 'demo-approver');
   const card = page.locator('#drafts article').filter({ hasText: draft.draft_id.slice(0, 8) });
+  if (videoDir) {
+    await card.scrollIntoViewIfNeeded();
+    await videoMoment(page, null);
+  }
   const [decisionResponse] = await Promise.all([
     page.waitForResponse(isResponse(`/api/drafts/${draft.draft_id}/decision`)),
     card.getByRole('button', { name: '审批通过' }).click(),
   ]);
   requireCheck(decisionResponse.status() === 200 && (await decisionResponse.json()).status === 'approved', 'approver_approved');
+  if (videoDir) await videoMoment(page, '#drafts');
   const [submitResponse] = await Promise.all([
     page.waitForResponse(isResponse(`/api/drafts/${draft.draft_id}/submit`)),
     card.getByRole('button', { name: '提交至模拟 ERP' }).click(),
@@ -192,6 +267,10 @@ try {
   await card.locator('.receipt strong').waitFor({ state: 'visible' });
   requireCheck((await card.locator('.receipt strong').innerText()) === erpReference &&
     (await card.locator('.badge').innerText()) === '已提交', 'receipt_visible_in_browser');
+  if (videoDir) {
+    await card.locator('summary').click();
+    await videoMoment(page, '#drafts', 2500);
+  }
   const retrySubmit = await api('POST', `/api/drafts/${draft.draft_id}/submit`, PF_APPROVER_TOKEN);
   requireCheck(retrySubmit.status === 200 && retrySubmit.data.erp_reference === erpReference &&
     retrySubmit.data.events?.map(e => e.event).join(',') === 'created,approved,submitted', 'erp_submit_retry_is_idempotent');
@@ -216,6 +295,23 @@ try {
     'receipt_and_audit_returned', 'receipt_visible_in_browser', 'erp_submit_retry_is_idempotent']);
   evidence.failure = allowed.has(known) ? known : 'unexpected_or_timeout';
 } finally {
+  // Playwright finalizes the unedited WebM only after its context closes.
+  // The fixed filename is discoverable by the harness without ever printing
+  // the private path. A requested recording failure makes the experiment fail.
+  try {
+    if (context) await context.close();
+    if (videoDir) {
+      if (!video) throw new Error('video_missing');
+      const source = await video.path();
+      await copyFile(source, join(videoDir, 'recording.webm'), constants.COPYFILE_EXCL);
+      await unlink(source);
+      evidence.video = { recorded: true, private_only: true, edited: false,
+        pacing: 'Deliberate presentation pauses are part of the continuous recording.' };
+    }
+  } catch {
+    evidence.status = 'failed';
+    evidence.failure = 'video_finalization_failed';
+  }
   if (browser) await browser.close();
   await writeEvidence();
 }

@@ -12,13 +12,15 @@ const evidenceNotice = new Function(html.slice(begin, end) + "\nreturn evidenceN
 
 test("no successful business query is made visible", () => {
   for (const trace of [{events: []}, {events: [{tool: "list_stock", outcome: "rejected"}]}]) {
-    assert.match(evidenceNotice(trace), /没有成功查询业务数据/);
+    assert.match(evidenceNotice(trace), /没有成功查询业务数据.*无法提供可靠的业务数据/);
   }
 });
 
 test("a successful query never certifies the model answer", () => {
   for (const tool of ["list_stock", "list_quotes", "list_recommendations"]) {
-    assert.match(evidenceNotice({events: [{tool, outcome: "ok"}]}), /不能证明回答中每个结论都有依据/);
+    const notice = evidenceNotice({events: [{tool, outcome: "ok"}]});
+    assert.match(notice, /已查询业务数据.*系统中的库存、报价和采购预览/);
+    assert.doesNotMatch(notice, /已核实|全部正确|均准确|所有结论|已验证/);
   }
 });
 

@@ -233,12 +233,12 @@ try {
     markup: document.querySelector('#system-rules-list b') !== null,
     fallback: !document.querySelector('#system-rules-unavailable').hidden}));
   if (!normalRules.answer.includes('到货日期已经确定') || !normalRules.rules.includes('不是确认到货日期') ||
-      !normalRules.labels.includes('模型回答可能有误') || normalRules.markup || normalRules.fallback)
+      !normalRules.labels.includes('无法提供可靠的业务数据') || normalRules.markup || normalRules.fallback)
     throw new Error('Model answer and authoritative rules were not safely distinguished');
 
   for (const [prompt, expected] of [
     ['Rejected query', '没有成功查询业务数据'],
-    ['Successful query', '不能证明回答中每个结论都有依据'],
+    ['Successful query', '已查询业务数据；请以系统中的库存、报价和采购预览为准'],
     ['Missing trace', '无法确认本次查询依据'],
   ]) {
     await page.waitForFunction(() => !document.querySelector('#agent-form button[type="submit"]').disabled);

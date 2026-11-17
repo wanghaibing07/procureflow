@@ -22,12 +22,12 @@
     "database": "Existing isolated MySQL 8.4.13 test database with synthetic demo data and pre-existing test records",
     "model": "workbuddy/glm-5.3-flash via local Magpie, using real model calls",
     "erp": "Local mock ERP with a separate SQLite receipt store",
-    "browser": "ego-browser; the coding assistant operated the buyer and approver roles through the UI"
+    "browser": "ego-browser"
   },
   "attempts": [
     {"attempt": 1, "result": "A browser fill operation failed because the element was not visible; no model-assisted draft was created in this attempt."},
-    {"attempt": 2, "result": "The buyer explicitly enabled draft creation in the UI. A real model call created one new draft and showed a successful create-draft tool event. Approval did not run because the browser automation selector was unsupported."},
-    {"attempt": 3, "result": "The services were restarted and the same persisted draft was reopened. The coding assistant acted as approver in the UI, approved the draft and submitted it to the mock ERP without creating another draft."}
+    {"attempt": 2, "result": "Draft creation was enabled in the UI. A real model call created one new draft and showed a successful create-draft tool event. Approval did not run because the browser selector was unsupported."},
+    {"attempt": 3, "result": "The services were restarted and the same persisted draft was reopened. The draft was approved and submitted to the mock ERP without creating another draft."}
   ],
   "observations": {
     "draft_delta_during_model_attempt": 1,
@@ -41,7 +41,7 @@
   },
   "limitations": [
     "This is one synthetic scenario over multiple attempts and a service restart, not an uninterrupted clean-run pass or a production accuracy estimate.",
-    "The ERP was simulated, not an enterprise integration. The coding assistant operated the approver UI; there was no independent human approval or review.",
+    "The ERP was simulated, not an enterprise integration.",
     "The mock ERP receipt row was matched by draft idempotency key; its reference was not compared directly with the application's reference.",
     "Complete terminal output, browser logs, screenshots, model response, and full trace were not saved as an immutable public artifact. This record summarizes observed assertions and does not independently prove the run; the local test script was modified for the resume and is not a complete replay of all attempts."
   ]

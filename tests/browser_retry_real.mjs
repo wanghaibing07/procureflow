@@ -292,8 +292,9 @@ try {
   await page.waitForFunction(() => !document.querySelector('#agent-result').hidden);
   const rules = await page.evaluate(() => ({text: document.querySelector('#system-rules-list').textContent,
     fallback: !document.querySelector('#system-rules-unavailable').hidden,
-    warning: document.querySelector('#agent-result').textContent.includes('模型回答可能有误')}));
-  if (rules.fallback || !rules.warning || !rules.text.includes('需求截止日不是') || !rules.text.includes('采购员先选择物料'))
+    evidence: document.querySelector('#agent-evidence').textContent}));
+  if (rules.fallback || !rules.evidence.includes('已查询业务数据；请以系统中的库存、报价和采购预览为准') ||
+      !rules.text.includes('需求截止日不是') || !rules.text.includes('采购员先选择物料'))
     throw new Error('The real API replay did not display authoritative rules separately');
   const agentFinal = await fetch(`${backendOrigin}/api/drafts`, {headers: {authorization: `Bearer ${buyer}`}}).then(r => r.json());
   if (agentAttempts.length !== 2 || agentAttempts[0].requestId !== agentAttempts[1].requestId ||

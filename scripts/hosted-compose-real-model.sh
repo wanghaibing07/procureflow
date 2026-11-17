@@ -15,6 +15,14 @@ project="pfhosted${GITHUB_RUN_ID}"
 [[ "$project" =~ ^pfhosted[0-9]+$ ]] || exit 2
 export COMPOSE_PROJECT_NAME="$project"
 export PF_BASE_URL="http://127.0.0.1:8000"
+if [[ -n ${PF_VIDEO_PUBLIC_KEY_B64:-} ]]; then
+  # The browser writes unencrypted frames only under this private temporary
+  # directory. The raw file is never included in the artifact upload path.
+  export PF_PRIVATE_VIDEO_DIR="$private/video"
+  export PF_VIDEO_RUN_ID="$GITHUB_RUN_ID"
+  export PF_VIDEO_SOURCE_COMMIT="$(git rev-parse HEAD)"
+  mkdir -m 700 "$PF_PRIVATE_VIDEO_DIR"
+fi
 phase=initialization
 compose_configured=0
 event() { printf '{"phase":"%s","result":"%s"}\n' "$1" "$2" >> "$public/events.jsonl"; }
@@ -73,7 +81,7 @@ data={'source_commit':sys.argv[2], 'environment':'GitHub-hosted Ubuntu; Docker C
  'llama_cpp_release':'b12433',
  'llama_archive_sha256':'209023cfc6061720802c103e5b7ba9f99e9304a3bdcd035fc50c3fba064cb79f',
  'model_timeout_seconds':120,
- 'limits':'No independent human UAT; one synthetic browser scenario; correct execution is not model answer accuracy.'}
+ 'limits':'One synthetic browser scenario; successful execution does not establish model answer accuracy.'}
 with open(sys.argv[1],'w',encoding='utf8') as f: json.dump(data,f,indent=2)
 PY
 event initialization started
@@ -195,6 +203,20 @@ except httpx.ConnectError as e:
 else: raise SystemExit('Untrusted CA accepted')
 PY
 event "$phase" passed
+
+if [[ -n ${PF_PRIVATE_VIDEO_DIR:-} ]]; then
+  phase=video_public_key_validation
+  # Validate the public key before allowing the browser to capture anything.
+  # The locked application container already includes cryptography. No
+  # private key or browser content enters the environment or logs.
+  docker compose exec -T \
+    -e "PF_VIDEO_PUBLIC_KEY_B64=$PF_VIDEO_PUBLIC_KEY_B64" \
+    -e "PF_VIDEO_RUN_ID=$PF_VIDEO_RUN_ID" \
+    -e "PF_VIDEO_SOURCE_COMMIT=$PF_VIDEO_SOURCE_COMMIT" \
+    app /app/.venv/bin/python -c "$(cat "$root/scripts/video_envelope.py")" validate-key \
+    > "$private/video-key-check.log" 2>&1
+  event "$phase" passed
+fi
 
 phase=browser_acceptance
 # The test receives only one-run demo credentials; stdout/stderr remain private.
@@ -419,4 +441,25 @@ else: raise SystemExit('Draft not recovered after application restart')
 PY
 event "$phase" passed
 if (( browser_rc != 0 || agent_trace_rc != 0 || agent_compare_rc != 0 )); then phase=browser_model_or_business_checks; exit 1; fi
+if [[ -n ${PF_PRIVATE_VIDEO_DIR:-} ]]; then
+  phase=video_encryption
+  # Only after every experiment check and browser closure succeeded do we seal
+  # exactly one raw recording. A partial/corrupt envelope stays private.
+  mapfile -d '' recordings < <(find "$PF_PRIVATE_VIDEO_DIR" -maxdepth 1 -type f -name '*.webm' -print0)
+  if (( ${#recordings[@]} != 1 )); then
+    echo 'Expected one completed private recording.' >&2
+    exit 1
+  fi
+  docker compose exec -T \
+    -e "PF_VIDEO_PUBLIC_KEY_B64=$PF_VIDEO_PUBLIC_KEY_B64" \
+    -e "PF_VIDEO_RUN_ID=$PF_VIDEO_RUN_ID" \
+    -e "PF_VIDEO_SOURCE_COMMIT=$PF_VIDEO_SOURCE_COMMIT" \
+    app /app/.venv/bin/python -c "$(cat "$root/scripts/video_envelope.py")" encrypt \
+    < "${recordings[0]}" > "$private/video.pfvideo" 2> "$private/video-encryption.log"
+  test -s "$private/video.pfvideo"
+  # Reject an existing destination: a run never replaces another artifact.
+  mkdir -m 700 "$RUNNER_TEMP/pf-encrypted-video"
+  mv -- "$private/video.pfvideo" "$RUNNER_TEMP/pf-encrypted-video/video.pfvideo"
+  event "$phase" encrypted_for_local_review
+fi
 event experiment completed

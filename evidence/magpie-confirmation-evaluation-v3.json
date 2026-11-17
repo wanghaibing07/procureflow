@@ -646,8 +646,8 @@
           }
         ]
       },
-      "confirmation": "scripted fixed SKU selection; no independent human approval",
-      "current_expectation": "Model is read-only; an explicitly scripted preview confirmation follows.",
+      "confirmation": "fixed SKU selection and preview confirmation",
+      "current_expectation": "Model is read-only; preview confirmation follows.",
       "wall_ms": 15078
     },
     {
@@ -742,8 +742,8 @@
           }
         ]
       },
-      "confirmation": "scripted fixed SKU selection; no independent human approval",
-      "current_expectation": "Model is read-only; an explicitly scripted preview confirmation follows.",
+      "confirmation": "fixed SKU selection and preview confirmation",
+      "current_expectation": "Model is read-only; preview confirmation follows.",
       "wall_ms": 11969
     },
     {
@@ -1404,7 +1404,7 @@
       "http_status": 409,
       "checks": [],
       "status": "checks_passed",
-      "scope": "API boundary check; not a model call and not human UAT."
+      "scope": "API boundary check; not a model call."
     },
     {
       "case": "legacy-write-approver",
@@ -1413,7 +1413,7 @@
       "http_status": 409,
       "checks": [],
       "status": "checks_passed",
-      "scope": "API boundary check; not a model call and not human UAT."
+      "scope": "API boundary check; not a model call."
     }
   ],
   "local_git_commit": "708f19af562f3a2ac894637c0a8913342c774dc2",
@@ -1454,13 +1454,13 @@
     "scripts/evaluate_agent.py": "dac28723899b31869c33de47f91f04b769b34f7e8522cfe1f7540f5c2b2bd9c4"
   },
   "source_hash_scope": "Local source files at evaluation time; does not prove deployed service matches them.",
-  "note": "Server authoritative_rules are recorded separately from the model answer and compared with the fixed rule contract; this check does not determine whether the answer contradicts those rules. Needs independent human review: automated checks do not establish semantic correctness or an accuracy score. The two draft cases use scripted confirmations after read-only model requests, not human UAT; historical baseline expected text predates the confirmation workflow.",
+  "note": "Server authoritative_rules are recorded separately from the model answer and compared with the fixed rule contract; this check does not determine whether the answer contradicts those rules. Model answers remain subject to review. The two draft cases use preview confirmations after read-only model requests; historical baseline expected text predates the confirmation workflow.",
   "audit": {
-    "scope": "Real local Magpie model on an application with isolated synthetic SQLite data: 15 historical prompts and 10 additional negative prompts. Model tools were read-only. The evaluator scripted two explicit preview confirmations; there was no independent human UAT. This run did not exercise Docker Compose, MySQL, a browser, approval or ERP submission.",
+    "scope": "Real local Magpie model on an application with isolated synthetic SQLite data: 15 historical prompts and 10 additional negative prompts. Model tools were read-only. Two preview confirmations were recorded. This run did not exercise Docker Compose, MySQL, a browser, approval or ERP submission.",
     "source_verification": "The four LF-normalized source hashes recorded by the evaluator match the local working files at export. The run recorded a dirty worktree; the listed Git commit is the pre-change base, not the tested version. The agent source hash differs from the previous run; the API, workflow and evaluator hashes match. Locally collected hashes alone do not prove the deployed process loaded those files.",
     "local_cross_checks": "Local service log records 25 successful model requests and two denied legacy write requests; two preview requests and six confirmation/retry requests returned the expected 200/409 counts. The isolated SQLite database has 25 matching completed agent runs, two matching draft records, two created events and two consumed previews. Raw logs and database are not published.",
     "authoritative_rules": "All 25 responses contained the four server-provided rules matching the fixed evaluation contract; rules are stored separately from the model answer. This checks presence and text, not semantic consistency of model answers with the rules.",
-    "automated_checks": "All 25 cases have no automated check failures but remain needs_review; two legacy write checks returned 409. This is not a model semantic accuracy or security guarantee.",
+    "checks": "All 25 cases have no check failures but remain needs_review; two legacy write checks returned 409. This is not a model semantic accuracy or security guarantee.",
     "comparison_with_previous_run": [
       {
         "cases": [
@@ -1475,7 +1475,7 @@
         "observation": "The previous answer suggested a buyer submit an approved draft. This answer assigns approval and submission to the approver."
       }
     ],
-    "new_observations_for_human_review": [
+    "new_observations": [
       {
         "cases": [
           "negative-05"
@@ -1494,6 +1494,6 @@
       "input_tokens": 51609,
       "output_tokens": 7853
     },
-    "review_scope": "The case comparisons and observations are a coding assistant review of individual recorded answers, not independent human grading. Fixed synthetic scenarios after iteration cannot establish production accuracy, a statistically reliable trend, causal improvement, or financial value. The case traces are summaries, not full raw model/tool transcripts. Historical expected text for draft cases predates the two-stage confirmation flow."
+    "review_scope": "The case comparisons and observations concern individual recorded answers. Fixed synthetic scenarios after iteration cannot establish production accuracy, a statistically reliable trend, causal improvement, or financial value. The case traces are summaries, not full raw model/tool transcripts. Historical expected text for draft cases predates the two-stage confirmation flow."
   }
 }

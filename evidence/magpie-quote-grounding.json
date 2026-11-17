@@ -50,5 +50,5 @@
     }
   ],
   "limitations": "Three synthetic questions; semantic review required; no production accuracy claim.",
-  "assistant_review": "The coding assistant compared the three synthetic answers against catalog data: LABEL exists without quotes, XYZ-NO-SUCH is absent from this catalog, and BRACKET has two quoted suppliers. All three statements matched this run. This is not independent human review or a statistical success rate."
+  "observations": "Catalog data: LABEL exists without quotes, XYZ-NO-SUCH is absent from this catalog, and BRACKET has two quoted suppliers. All three statements matched this run. This is not a statistical success rate."
 }

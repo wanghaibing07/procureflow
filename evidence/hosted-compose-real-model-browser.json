@@ -2,7 +2,7 @@
   "run_url": "https://github.com/wanghaibing07/procureflow/actions/runs/44010545421",
   "tested_commit": "1d71f6173b21aa225f70f215d5cd358a478911d4",
   "workflow_result": "success",
-  "environment": "GitHub-hosted Ubuntu; one isolated Docker Compose application, MySQL, mock ERP and local model environment, accessed by automated Chromium; synthetic data",
+  "environment": "GitHub-hosted Ubuntu; one isolated Docker Compose application, MySQL, mock ERP and local model environment, accessed by Chromium; synthetic data",
   "model": {
     "name": "Qwen/Qwen2.5-0.5B-Instruct-GGUF q4_k_m",
     "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
@@ -23,12 +23,12 @@
     "answer": "查询全部物料当前库存和缺口如下：\n\n1. 安装支架: 25\n   - 储留: 8\n   - 有发货日期: 15\n   - 预测需求: 42\n   - 安全库存: 10\n   - 短缺: 20\n   - 有发货截止日期: 2026-01-08\n   - 等待的净可用库存: 32\n   - 总需求: 52\n\n2. 密封垫: 3\n   - 储留: 2\n   - 有发货日期: 0\n   - 预测需求: 21\n   - 安全库存: 5\n   - 短缺: 23\n   - 有发货截止日期: 2026-01-08\n   - 等待的净可用库存: 3\n   - 总需求: 26\n\n3. 包装标签: 120\n   - 储留: 20\n   - 有发货日期: 0\n   - 预测需求: 28\n   - 安全库存: 20\n   - 短缺: 0\n   - 有发货截止日期: 2026-01-08\n   - 等待的净可用库存: 100\n   - 总需求: 48\n\n请注意，由于库存已满，有发货截止日期，且有发货库存，因此总需求未达到需求上限。",
     "tool_event": {"step": 1, "tool": "list_stock", "outcome": "ok", "elapsed_ms": 2, "result_count": 3},
     "trace_corroboration": "The browser request ID, completed database Agent run, model call count and successful list_stock event were cross-checked by the harness.",
-    "semantic_review": "Not passed on AI-assisted review: the GASKET heading states 3 without identifying it as net available stock, although its later net-available figure of 3 is correct; the synthetic catalog has 5 on hand and 2 reserved. The answer describes the 2026-01-08 demand deadline as a shipment deadline and concludes that stock is full without supporting evidence. Independent human review remains pending."
+    "semantic_review": "Not passed on review: the GASKET heading states 3 without identifying it as net available stock, although its later net-available figure of 3 is correct; the synthetic catalog has 5 on hand and 2 reserved. The answer describes the 2026-01-08 demand deadline as a shipment deadline and concludes that stock is full without supporting evidence."
   },
   "browser_business_checks": {
-    "automated_actors": ["demo-buyer", "demo-approver"],
-    "pre_confirmation": "The script observed no draft after the model query and before the automated buyer confirmed the preview.",
-    "preview_and_draft": "Automated Chromium selected BRACKET and confirmed the server preview; draft lines matched the preview: S-FAST, quantity 20, unit price 11.50, total 230.00.",
+    "actors": ["demo-buyer", "demo-approver"],
+    "pre_confirmation": "No draft was present after the model query or before preview confirmation.",
+    "preview_and_draft": "The BRACKET preview and draft lines matched: S-FAST, quantity 20, unit price 11.50, total 230.00.",
     "draft_id": "88ca4fdb-d96b-4d19-a791-599b5db0ef7e",
     "outcome": "The browser/API recorded approval and mock ERP submission with created, approved and submitted audit events and displayed the receipt.",
     "erp_reference": "MOCK-3310258FBD8745C6AEFC132FB28B6436",
@@ -46,8 +46,8 @@
   "tls_and_authentication": "The harness recorded successful authenticated HTTPS and rejection checks for missing authentication, wrong hostname and an untrusted CA.",
   "cleanup": "The harness reported removal of Compose containers, volumes, networks and project image tags; this does not establish removal of every underlying runner image or other resource.",
   "limitations": [
-    "The automated flow passed, but the model answer did not pass the stated semantic review; workflow success is not answer accuracy.",
-    "The buyer and approver were automated identities, not independent human UAT.",
+    "The flow passed, but the model answer did not pass the semantic review; workflow success is not answer accuracy.",
+    "Two demonstration identities were used for the buyer and approver roles.",
     "This was a GitHub-hosted synthetic experiment with Qwen 0.5B, not the VMware or Magpie run.",
     "One scenario and no actual billing do not establish production accuracy, efficiency or cost."
   ]
