@@ -1,0 +1,203 @@
+// Manual hosted experiment only: fresh synthetic Compose services and a real
+// model configured by the runner. This uses automated roles, not human UAT.
+// The harness must separately verify model provenance, TLS, MySQL, ERP storage,
+// and service restart/cleanup; this script only observes the browser and API.
+import { chromium } from 'playwright';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+const { PF_BASE_URL, PF_BUYER_TOKEN, PF_APPROVER_TOKEN, PF_EVIDENCE_DIR } = process.env;
+const evidence = {
+  status: 'running', stage: 'initialization',
+  environment: 'automated Chromium against an isolated synthetic demo',
+  human_uat: false,
+  model_answer_semantics: 'not evaluated; requires independent review',
+  checks: {},
+};
+let browser;
+
+function requireCheck(value, name) {
+  if (!value) throw new Error(name);
+  evidence.checks[name] = true;
+}
+function safeAnswer(value) {
+  let text = String(value ?? '');
+  if (text.length > 100000) throw new Error('answer_exceeds_evidence_limit');
+  for (const secret of [PF_BUYER_TOKEN, PF_APPROVER_TOKEN, process.env.PF_MODEL_TOKEN,
+    process.env.PROCUREFLOW_MODEL_API_KEY].filter(Boolean)) text = text.replaceAll(secret, '[redacted]');
+  return text.replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, '[redacted]');
+}
+async function writeEvidence() {
+  if (!PF_EVIDENCE_DIR) return;
+  await mkdir(PF_EVIDENCE_DIR, { recursive: true, mode: 0o700 });
+  await writeFile(join(PF_EVIDENCE_DIR, 'browser-acceptance.json'), JSON.stringify(evidence, null, 2) + '\n', { mode: 0o600 });
+}
+
+try {
+  if (!PF_BASE_URL || !PF_BUYER_TOKEN || !PF_APPROVER_TOKEN || !PF_EVIDENCE_DIR) throw new Error('missing_configuration');
+  const url = new URL(PF_BASE_URL);
+  if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password ||
+      !['', '/'].includes(url.pathname) || url.search || url.hash) throw new Error('invalid_origin');
+  const origin = url.origin;
+
+  async function api(method, path, token, body, key) {
+    const response = await fetch(origin + path, { method, redirect: 'error',
+      headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}),
+        ...(key ? { 'idempotency-key': key } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    return { status: response.status, data: await response.json() };
+  }
+  async function signIn(page, token, label) {
+    await page.locator('#token').fill(token);
+    await page.locator('#signin button').click();
+    await page.waitForFunction(expected => document.querySelector('#identity-name')?.textContent.includes(expected)
+      && document.querySelectorAll('#stock tr').length === 3, label, { timeout: 20000 });
+  }
+  const isResponse = (path) => response => new URL(response.url()).origin === origin &&
+    new URL(response.url()).pathname === path && response.request().method() === 'POST';
+
+  evidence.stage = 'preflight';
+  const health = await fetch(origin + '/healthz', { redirect: 'error' }).then(r => r.json());
+  requireCheck(health.alive === true && health.model_configured === true, 'configured_model_and_app');
+  const before = await api('GET', '/api/drafts', PF_BUYER_TOKEN);
+  requireCheck(before.status === 200 && Array.isArray(before.data) && before.data.length === 0, 'empty_synthetic_database');
+
+  browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  page.setDefaultTimeout(20000);
+  await page.goto(origin, { waitUntil: 'domcontentloaded' });
+  await signIn(page, PF_BUYER_TOKEN, 'demo-buyer');
+  await page.locator('#agent-panel').waitFor({ state: 'visible' });
+
+  // Capture what the actual model returned, even if it did not call a tool or
+  // answered incorrectly. A trace event supports tool execution, not semantic accuracy.
+  evidence.stage = 'model_query';
+  let modelOk = false;
+  try {
+    await page.locator('#prompt').fill('查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。');
+    const [modelResponse] = await Promise.all([
+      page.waitForResponse(isResponse('/api/agent/run'), { timeout: 150000 }),
+      page.locator('#agent-form button[type="submit"]').click(),
+    ]);
+    evidence.model = { http_status: modelResponse.status() };
+    if (modelResponse.status() === 200) {
+      const result = await modelResponse.json();
+      const events = Array.isArray(result.trace?.events) ? result.trace.events : [];
+      evidence.model = {
+        http_status: 200, request_id: result.request_id, model: safeAnswer(result.trace?.model),
+        model_calls: result.trace?.model_calls, elapsed_ms: result.trace?.elapsed_ms,
+        input_tokens: result.trace?.input_tokens, output_tokens: result.trace?.output_tokens,
+        prompt: '查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。',
+        answer: safeAnswer(result.answer),
+        tool_events: events.map(e => ({ step: e.step,
+          tool: ['list_stock', 'list_quotes', 'list_recommendations'].includes(e.tool) ? e.tool : '[other]',
+          outcome: e.outcome, elapsed_ms: e.elapsed_ms, result_count: e.result_count })),
+        draft_id_is_null: result.draft_id === null,
+      };
+      await page.locator('#agent-result').waitFor({ state: 'visible', timeout: 20000 });
+      modelOk = Number.isInteger(result.trace?.model_calls) && result.trace.model_calls > 0 && result.draft_id === null &&
+        events.some(e => ['list_stock', 'list_quotes', 'list_recommendations'].includes(e.tool) && e.outcome === 'ok');
+    }
+  } catch {
+    evidence.model = { ...(evidence.model || {}), observation: 'query_failed_or_timed_out' };
+  }
+  evidence.checks.model_query_called_read_only_tool = modelOk;
+  await writeEvidence();
+  await page.waitForFunction(() => !document.querySelector('#switch-user').disabled, null, { timeout: 30000 });
+  const afterModel = await api('GET', '/api/drafts', PF_BUYER_TOKEN);
+  requireCheck(afterModel.status === 200 && afterModel.data.length === 0, 'no_model_draft');
+
+  evidence.stage = 'browser_preview';
+  await page.locator('#recommendations input[value="BRACKET"]').check();
+  const [previewResponse] = await Promise.all([
+    page.waitForResponse(isResponse('/api/drafts/preview')),
+    page.locator('#create-draft').click(),
+  ]);
+  requireCheck(previewResponse.status() === 200, 'preview_api_success');
+  const preview = await previewResponse.json();
+  await page.locator('#draft-preview').waitFor({ state: 'visible' });
+  const previewText = await page.locator('#preview-lines').innerText();
+  const previewTotal = await page.locator('#preview-total').innerText();
+  requireCheck(preview.skus?.length === 1 && preview.skus[0] === 'BRACKET' && preview.lines?.length === 1 &&
+    preview.lines[0].sku === 'BRACKET' && preview.lines[0].supplier_id === 'S-FAST' &&
+    preview.lines[0].quantity === 20 && Number(preview.lines[0].unit_price) === 11.5 &&
+    Number(preview.total) === 230 && previewText.includes('BRACKET') && previewText.includes('S-FAST') &&
+    previewText.includes('20') && previewText.includes('11.50') && previewTotal.includes('230.00'), 'preview_display_matches_synthetic_business_values');
+  const beforeConfirmation = await api('GET', '/api/drafts', PF_BUYER_TOKEN);
+  requireCheck(beforeConfirmation.status === 200 && beforeConfirmation.data.length === 0, 'no_draft_before_explicit_confirmation');
+
+  evidence.stage = 'browser_confirmation';
+  const [draftResponse] = await Promise.all([
+    page.waitForResponse(isResponse('/api/drafts')),
+    page.locator('#confirm-draft').click(),
+  ]);
+  requireCheck(draftResponse.status() === 200, 'confirmed_draft_api_success');
+  const draft = await draftResponse.json();
+  const confirmedRequest = draftResponse.request();
+  const confirmationBody = confirmedRequest.postDataJSON();
+  const confirmationKey = (await confirmedRequest.allHeaders())['idempotency-key'];
+  requireCheck(typeof confirmationKey === 'string' && confirmationBody.preview_hash === preview.preview_hash &&
+    JSON.stringify(confirmationBody.skus) === JSON.stringify(preview.skus) &&
+    JSON.stringify(draft.lines) === JSON.stringify(preview.lines) && Number(draft.total) === Number(preview.total) &&
+    draft.status === 'draft' && draft.buyer_id === 'demo-buyer', 'draft_matches_confirmed_preview');
+  await page.waitForFunction(() => document.querySelector('#notice')?.textContent.includes('已就绪'));
+  requireCheck((await page.locator('#drafts').innerText()).includes('BRACKET'), 'draft_visible_in_browser');
+
+  // Retry the exact confirmed HTTP request; only the request ID and preview
+  // capability remain in memory, never in the exported evidence.
+  const replay = await api('POST', '/api/drafts', PF_BUYER_TOKEN, confirmationBody, confirmationKey);
+  const afterReplay = await api('GET', '/api/drafts', PF_BUYER_TOKEN);
+  requireCheck(replay.status === 200 && replay.data.draft_id === draft.draft_id && afterReplay.status === 200 &&
+    afterReplay.data.length === 1 && afterReplay.data[0].draft_id === draft.draft_id, 'draft_retry_is_idempotent');
+
+  evidence.stage = 'browser_approval_and_erp';
+  await page.locator('#switch-user').click();
+  await signIn(page, PF_APPROVER_TOKEN, 'demo-approver');
+  const card = page.locator('#drafts article').filter({ hasText: draft.draft_id.slice(0, 8) });
+  const [decisionResponse] = await Promise.all([
+    page.waitForResponse(isResponse(`/api/drafts/${draft.draft_id}/decision`)),
+    card.getByRole('button', { name: '审批通过' }).click(),
+  ]);
+  requireCheck(decisionResponse.status() === 200 && (await decisionResponse.json()).status === 'approved', 'approver_approved');
+  const [submitResponse] = await Promise.all([
+    page.waitForResponse(isResponse(`/api/drafts/${draft.draft_id}/submit`)),
+    card.getByRole('button', { name: '提交至模拟 ERP' }).click(),
+  ]);
+  requireCheck(submitResponse.status() === 200, 'erp_submit_api_success');
+  const submitted = await submitResponse.json();
+  const erpReference = submitted.erp_reference;
+  requireCheck(submitted.status === 'submitted' && typeof erpReference === 'string' && erpReference.length > 0 &&
+    submitted.events?.map(e => e.event).join(',') === 'created,approved,submitted' &&
+    submitted.events?.map(e => e.actor_id).join(',') === 'demo-buyer,demo-approver,demo-approver', 'receipt_and_audit_returned');
+  await card.locator('.receipt strong').waitFor({ state: 'visible' });
+  requireCheck((await card.locator('.receipt strong').innerText()) === erpReference &&
+    (await card.locator('.badge').innerText()) === '已提交', 'receipt_visible_in_browser');
+  const retrySubmit = await api('POST', `/api/drafts/${draft.draft_id}/submit`, PF_APPROVER_TOKEN);
+  requireCheck(retrySubmit.status === 200 && retrySubmit.data.erp_reference === erpReference &&
+    retrySubmit.data.events?.map(e => e.event).join(',') === 'created,approved,submitted', 'erp_submit_retry_is_idempotent');
+
+  evidence.draft = { draft_id: draft.draft_id, sku: 'BRACKET', supplier_id: 'S-FAST', quantity: 20,
+    unit_price: '11.50', total: '230.00', status: 'submitted', erp_reference: erpReference,
+    events: ['created', 'approved', 'submitted'] };
+  evidence.stage = 'complete';
+  evidence.status = modelOk ? 'pass' : 'failed';
+  if (!modelOk) evidence.failure = 'model_query_missing_successful_read_only_tool';
+} catch (error) {
+  evidence.status = 'failed';
+  // Only locally defined check names are exported, never exception messages from
+  // Playwright, HTTP, model text, headers, or the environment.
+  const known = String(error?.message || '');
+  const allowed = new Set(['missing_configuration', 'invalid_origin', 'answer_exceeds_evidence_limit',
+    'configured_model_and_app', 'empty_synthetic_database', 'no_model_draft', 'preview_api_success',
+    'preview_display_matches_synthetic_business_values', 'no_draft_before_explicit_confirmation',
+    'confirmed_draft_api_success', 'draft_matches_confirmed_preview', 'draft_visible_in_browser',
+    'draft_retry_is_idempotent', 'approver_approved', 'erp_submit_api_success',
+    'receipt_and_audit_returned', 'receipt_visible_in_browser', 'erp_submit_retry_is_idempotent']);
+  evidence.failure = allowed.has(known) ? known : 'unexpected_or_timeout';
+} finally {
+  if (browser) await browser.close();
+  await writeEvidence();
+}
+console.log(`Hosted browser experiment: ${evidence.status}; stage: ${evidence.stage}`);
+if (evidence.status !== 'pass') process.exitCode = 1;

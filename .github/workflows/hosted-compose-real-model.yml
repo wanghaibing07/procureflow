@@ -1,0 +1,30 @@
+name: Hosted Compose real-model browser experiment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  experiment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+      - name: Install browser test dependencies
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Run isolated synthetic experiment
+        run: bash scripts/hosted-compose-real-model.sh
+      - name: Upload reviewed synthetic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hosted-compose-real-model-${{ github.run_id }}
+          path: ${{ runner.temp }}/pf-public-evidence/
+          if-no-files-found: warn
+          retention-days: 7
