@@ -5,6 +5,36 @@ set +x
 umask 077
 : "${RUNNER_TEMP:?}" "${GITHUB_RUN_ID:?}"
 
+# Only explicitly pinned release artifacts are selectable. Do not derive a URL
+# or model name from an untrusted workflow input.
+model_choice=${PF_MODEL_CHOICE:-qwen2.5-0.5b}
+case "$model_choice" in
+  qwen2.5-0.5b)
+    model_repository='Qwen/Qwen2.5-0.5B-Instruct-GGUF'
+    model_revision='9217f5db79a29953eb74d5343926648285ec7e67'
+    model_filename='qwen2.5-0.5b-instruct-q4_k_m.gguf'
+    model_sha256='74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db'
+    model_size_bytes=491400032
+    model_name='qwen2.5-0.5b-instruct-q4_k_m'
+    model_download_timeout=600
+    required_memory_kib=4194304
+    required_disk_kib=8388608
+    ;;
+  qwen2.5-3b)
+    model_repository='Qwen/Qwen2.5-3B-Instruct-GGUF'
+    model_revision='7dabda4d13d513e3e842b20f0d435c732f172cbe'
+    model_filename='qwen2.5-3b-instruct-q4_k_m.gguf'
+    model_sha256='626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d'
+    model_size_bytes=2104932768
+    model_name='qwen2.5-3b-instruct-q4_k_m'
+    model_download_timeout=1200
+    required_memory_kib=5242880
+    required_disk_kib=10485760
+    ;;
+  *) printf '%s\n' 'Unsupported model choice.' >&2; exit 2 ;;
+esac
+model_url="https://huggingface.co/$model_repository/resolve/$model_revision/$model_filename"
+
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 private=$(mktemp -d "$RUNNER_TEMP/pf-private.XXXXXXXX")
@@ -72,12 +102,12 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-python3 - "$public/provenance.json" "$(git rev-parse HEAD)" <<'PY'
+python3 - "$public/provenance.json" "$(git rev-parse HEAD)" "$model_choice" "$model_repository" "$model_revision" "$model_filename" "$model_sha256" "$model_size_bytes" "$model_name" "$model_url" <<'PY'
 import json,sys
 data={'source_commit':sys.argv[2], 'environment':'GitHub-hosted Ubuntu; Docker Compose; synthetic data only',
- 'model':'Qwen/Qwen2.5-0.5B-Instruct-GGUF q4_k_m',
- 'model_revision':'9217f5db79a29953eb74d5343926648285ec7e67',
- 'model_sha256':'74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db',
+ 'model_choice':sys.argv[3], 'model':sys.argv[4]+' q4_k_m', 'model_revision':sys.argv[5],
+ 'model_filename':sys.argv[6], 'model_sha256':sys.argv[7], 'model_size_bytes':int(sys.argv[8]),
+ 'model_name':sys.argv[9], 'model_url':sys.argv[10],
  'llama_cpp_release':'b12433',
  'llama_archive_sha256':'209023cfc6061720802c103e5b7ba9f99e9304a3bdcd035fc50c3fba064cb79f',
  'model_timeout_seconds':120,
@@ -88,17 +118,17 @@ event initialization started
 phase=resource_check
 available=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
 disk=$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')
-[[ "$available" =~ ^[0-9]+$ && "$disk" =~ ^[0-9]+$ ]] && (( available >= 4194304 && disk >= 8388608 ))
+[[ "$available" =~ ^[0-9]+$ && "$disk" =~ ^[0-9]+$ ]] && (( available >= required_memory_kib && disk >= required_disk_kib ))
 event "$phase" passed
 
 phase=download_and_verify
-curl -fsSL --retry 2 --connect-timeout 20 --max-time 600 \
-  'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf' \
+curl -fsSL --retry 2 --connect-timeout 20 --max-time "$model_download_timeout" \
+  "$model_url" \
   -o "$private/model.gguf"
 curl -fsSL --retry 2 --connect-timeout 20 --max-time 300 \
   'https://github.com/ggml-org/llama.cpp/releases/download/b12433/llama-b12433-bin-ubuntu-x64.tar.gz' \
   -o "$private/llama.tar.gz"
-printf '%s  %s\n' 74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db "$private/model.gguf" | sha256sum -c --status
+printf '%s  %s\n' "$model_sha256" "$private/model.gguf" | sha256sum -c --status
 printf '%s  %s\n' 209023cfc6061720802c103e5b7ba9f99e9304a3bdcd035fc50c3fba064cb79f "$private/llama.tar.gz" | sha256sum -c --status
 event "$phase" passed
 
@@ -112,13 +142,13 @@ COPY llama-b12433/ /opt/llama/
 ENV LD_LIBRARY_PATH=/opt/llama
 ENTRYPOINT ["/opt/llama/llama-server"]
 DOCKER
-python3 - "$private/environment" "$private/tls/api-key" <<'PY'
+python3 - "$private/environment" "$private/tls/api-key" "$model_name" <<'PY'
 import secrets,sys
 names=('MYSQL_PASSWORD','PROCUREFLOW_BUYER_TOKEN','PROCUREFLOW_APPROVER_TOKEN','PROCUREFLOW_ERP_TOKEN','PROCUREFLOW_MODEL_API_KEY')
 values={name:secrets.token_hex(24) for name in names}
 with open(sys.argv[1],'x',encoding='ascii') as f:
  for name,value in values.items(): f.write(f'{name}={value}\n')
- f.write('PROCUREFLOW_MODEL_URL=https://model:9443/v1\nPROCUREFLOW_MODEL_NAME=qwen2.5-0.5b-instruct-q4_k_m\nPROCUREFLOW_MODEL_TIMEOUT_SECONDS=120\n')
+ f.write('PROCUREFLOW_MODEL_URL=https://model:9443/v1\nPROCUREFLOW_MODEL_NAME='+sys.argv[3]+'\nPROCUREFLOW_MODEL_TIMEOUT_SECONDS=120\n')
 with open(sys.argv[2],'x',encoding='ascii') as f: f.write(values['PROCUREFLOW_MODEL_API_KEY'])
 PY
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=ProcureFlow synthetic CA' -addext 'basicConstraints=critical,CA:TRUE' -keyout "$private/tls/ca.key" -out "$private/tls/ca.pem" > "$private/cert.log" 2>&1

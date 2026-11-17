@@ -3,6 +3,14 @@ name: Hosted Compose real-model browser experiment
 on:
   workflow_dispatch:
     inputs:
+      model_choice:
+        description: Pinned local model to use for this experiment
+        required: true
+        type: choice
+        default: qwen2.5-0.5b
+        options:
+          - qwen2.5-0.5b
+          - qwen2.5-3b
       video_public_key_b64:
         description: Optional base64-encoded PEM public RSA key for encrypted video review
         required: false
@@ -26,6 +34,7 @@ jobs:
       - name: Run isolated synthetic experiment
         run: bash scripts/hosted-compose-real-model.sh
         env:
+          PF_MODEL_CHOICE: ${{ inputs.model_choice }}
           PF_VIDEO_PUBLIC_KEY_B64: ${{ inputs.video_public_key_b64 }}
       - name: Upload reviewed synthetic evidence
         if: always()
