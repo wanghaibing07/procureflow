@@ -1,0 +1,64 @@
+{
+  "status": "pass",
+  "stage": "complete",
+  "environment": "Chromium against an isolated synthetic demo",
+  "model_answer_semantics": "actual response recorded; the server business data remains authoritative",
+  "checks": {
+    "configured_model_and_app": true,
+    "empty_synthetic_database": true,
+    "model_query_called_read_only_tool": true,
+    "no_model_draft": true,
+    "preview_api_success": true,
+    "preview_display_matches_synthetic_business_values": true,
+    "no_draft_before_explicit_confirmation": true,
+    "confirmed_draft_api_success": true,
+    "draft_matches_confirmed_preview": true,
+    "draft_visible_in_browser": true,
+    "draft_retry_is_idempotent": true,
+    "approver_approved": true,
+    "erp_submit_api_success": true,
+    "receipt_and_audit_returned": true,
+    "receipt_visible_in_browser": true,
+    "erp_submit_retry_is_idempotent": true
+  },
+  "model": {
+    "prompt": "查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。",
+    "prompt_source": "actual_request",
+    "http_status": 200,
+    "ui_to_response_elapsed_ms": 68723,
+    "request_id": "763adb9d-7887-4eec-acde-844ea4ce4774",
+    "response_request_id_matches": true,
+    "model": "qwen2.5-3b-instruct-q4_k_m",
+    "model_calls": 2,
+    "elapsed_ms": 68646,
+    "input_tokens": 2904,
+    "output_tokens": 168,
+    "answer": "当前库存和缺口如下：\n\n- SKU: BRACKET，名称：安装支架，可用库存：32，预测需求：42，总需求：52，缺口：20。\n- SKU: GASKET，名称：密封垫，可用库存：3，预测需求：21，总需求：26，缺口：23。\n- SKU: LABEL，名称：包装标签，可用库存：100，预测需求：28，总需求：48，缺口：0。\n\n这些数据是在固定的规划窗口2026-01-01至2026-01-08内计算得出的。请确认是否需要更详细的信息或处理这些物料。",
+    "tool_events": [
+      {
+        "step": 1,
+        "tool": "list_stock",
+        "outcome": "ok",
+        "elapsed_ms": 2,
+        "result_count": 3
+      }
+    ],
+    "draft_id_is_null": true,
+    "ui_elapsed_ms": 68734
+  },
+  "draft": {
+    "draft_id": "bb1d9aef-b24c-4799-beca-d19aeacfb7ca",
+    "sku": "BRACKET",
+    "supplier_id": "S-FAST",
+    "quantity": 20,
+    "unit_price": "11.50",
+    "total": "230.00",
+    "status": "submitted",
+    "erp_reference": "MOCK-360E5157E2CC48AAAF3C3C3D65788481",
+    "events": [
+      "created",
+      "approved",
+      "submitted"
+    ]
+  }
+}

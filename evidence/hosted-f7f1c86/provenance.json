@@ -1,0 +1,16 @@
+{
+  "source_commit": "f7f1c8601ac034b038c30e0f30a8ffcbecc1efb4",
+  "environment": "GitHub-hosted Ubuntu; Docker Compose; synthetic data only",
+  "model_choice": "qwen2.5-3b",
+  "model": "Qwen/Qwen2.5-3B-Instruct-GGUF q4_k_m",
+  "model_revision": "7dabda4d13d513e3e842b20f0d435c732f172cbe",
+  "model_filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
+  "model_sha256": "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d",
+  "model_size_bytes": 2104932768,
+  "model_name": "qwen2.5-3b-instruct-q4_k_m",
+  "model_url": "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/7dabda4d13d513e3e842b20f0d435c732f172cbe/qwen2.5-3b-instruct-q4_k_m.gguf",
+  "llama_cpp_release": "b12433",
+  "llama_archive_sha256": "209023cfc6061720802c103e5b7ba9f99e9304a3bdcd035fc50c3fba064cb79f",
+  "model_timeout_seconds": 120,
+  "limits": "One synthetic browser scenario; successful execution does not establish model answer accuracy."
+}

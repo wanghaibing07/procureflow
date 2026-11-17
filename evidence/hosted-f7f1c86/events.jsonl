@@ -1,0 +1,15 @@
+{"phase":"initialization","result":"started"}
+{"phase":"resource_check","result":"passed"}
+{"phase":"download_and_verify","result":"passed"}
+{"phase":"prepare","result":"passed"}
+{"phase":"build","result":"passed"}
+{"phase":"start","result":"passed"}
+{"phase":"tls_and_authentication","result":"passed"}
+{"phase":"browser_acceptance","result":"passed"}
+{"phase":"agent_run_diagnostics","result":"collected"}
+{"phase":"agent_browser_crosscheck","result":"passed"}
+{"phase":"browser_evidence","result":"passed"}
+{"phase":"database_and_erp_crosscheck","result":"passed"}
+{"phase":"application_restart","result":"passed"}
+{"phase":"experiment","result":"completed"}
+{"phase":"cleanup","result":"compose_containers_volumes_networks_and_project_image_tags_removed"}
