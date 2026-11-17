@@ -1,0 +1,26 @@
+{
+  "draft_id": "07591611-033d-4fcb-8269-d6deb3b01361",
+  "receipt": "MOCK-C08FB702D055475A9901772F3078A5EB",
+  "mysql_draft_count": 1,
+  "mysql_event_count": 3,
+  "erp_receipt_count": 1,
+  "source_commit": "5dd8e5fe5982c5be1ddb0541dbf99d18cb1a7923",
+  "script_sha256": "1de409532dda15388a741b4e8c380d314732f9b051b9cdd7bc575f8327be52f5",
+  "draft_id_and_receipt_match": true,
+  "mysql_erp_full_line_fields_compared": [
+    "due_date",
+    "quantity",
+    "sku",
+    "supplier_id",
+    "unit_price"
+  ],
+  "mysql_erp_full_line_match": true,
+  "browser_summary_line_fields_compared": [
+    "sku",
+    "supplier_id",
+    "quantity",
+    "unit_price"
+  ],
+  "browser_due_date_compared": false,
+  "browser_summary_mysql_total_matches_line_calculation": true
+}

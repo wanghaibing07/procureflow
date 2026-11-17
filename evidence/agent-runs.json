@@ -1,0 +1,1 @@
+{"request_id":"40a17519-969c-4f11-910a-8088561404d5","runs":[{"status":"completed","model_calls":2,"elapsed_ms":17119,"input_tokens":2896,"output_tokens":304,"events":[{"step":1,"tool":"list_stock","outcome":"ok","elapsed_ms":2,"result_count":3}]}]}

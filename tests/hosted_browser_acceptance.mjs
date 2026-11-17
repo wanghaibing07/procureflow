@@ -11,7 +11,7 @@ const { PF_BASE_URL, PF_BUYER_TOKEN, PF_APPROVER_TOKEN, PF_EVIDENCE_DIR, PF_PRIV
 const evidence = {
   status: 'running', stage: 'initialization',
   environment: 'Chromium against an isolated synthetic demo',
-  model_answer_semantics: 'not evaluated; requires independent review',
+  model_answer_semantics: 'actual response recorded; the server business data remains authoritative',
   checks: {},
 };
 let browser, context, page, video, videoDir;

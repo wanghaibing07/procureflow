@@ -1,0 +1,64 @@
+{
+  "status": "pass",
+  "stage": "complete",
+  "environment": "Chromium against an isolated synthetic demo",
+  "model_answer_semantics": "not evaluated; requires independent review",
+  "checks": {
+    "configured_model_and_app": true,
+    "empty_synthetic_database": true,
+    "model_query_called_read_only_tool": true,
+    "no_model_draft": true,
+    "preview_api_success": true,
+    "preview_display_matches_synthetic_business_values": true,
+    "no_draft_before_explicit_confirmation": true,
+    "confirmed_draft_api_success": true,
+    "draft_matches_confirmed_preview": true,
+    "draft_visible_in_browser": true,
+    "draft_retry_is_idempotent": true,
+    "approver_approved": true,
+    "erp_submit_api_success": true,
+    "receipt_and_audit_returned": true,
+    "receipt_visible_in_browser": true,
+    "erp_submit_retry_is_idempotent": true
+  },
+  "model": {
+    "prompt": "查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。",
+    "prompt_source": "actual_request",
+    "http_status": 200,
+    "ui_to_response_elapsed_ms": 17193,
+    "request_id": "40a17519-969c-4f11-910a-8088561404d5",
+    "response_request_id_matches": true,
+    "model": "qwen2.5-0.5b-instruct-q4_k_m",
+    "model_calls": 2,
+    "elapsed_ms": 17119,
+    "input_tokens": 2896,
+    "output_tokens": 304,
+    "answer": "查询结果如下：\n\n- SKU: BRACKET\n  - on_hand: 25\n  - reserved: 8\n  - inbound_by_due: 15\n  - forecast_demand: 42\n  - safety_stock: 10\n  - shortage: 20\n  - due_date: 2026-01-08\n  - net_available: 32\n  - total_required: 52\n\n- SKU: GASKET\n  - on_hand: 5\n  - reserved: 2\n  - inbound_by_due: 0\n  - forecast_demand: 21\n  - safety_stock: 5\n  - shortage: 23\n  - due_date: 2026-01-08\n  - net_available: 3\n  - total_required: 26\n\n- SKU: LABEL\n  - on_hand: 120\n  - reserved: 20\n  - inbound_by_due: 0\n  - forecast_demand: 28\n  - safety_stock: 20\n  - shortage: 0\n  - due_date: 2026-01-08\n  - net_available: 100\n  - total_required: 48\n\n库存和缺口查询已完成。",
+    "tool_events": [
+      {
+        "step": 1,
+        "tool": "list_stock",
+        "outcome": "ok",
+        "elapsed_ms": 2,
+        "result_count": 3
+      }
+    ],
+    "draft_id_is_null": true,
+    "ui_elapsed_ms": 17200
+  },
+  "draft": {
+    "draft_id": "07591611-033d-4fcb-8269-d6deb3b01361",
+    "sku": "BRACKET",
+    "supplier_id": "S-FAST",
+    "quantity": 20,
+    "unit_price": "11.50",
+    "total": "230.00",
+    "status": "submitted",
+    "erp_reference": "MOCK-C08FB702D055475A9901772F3078A5EB",
+    "events": [
+      "created",
+      "approved",
+      "submitted"
+    ]
+  }
+}
