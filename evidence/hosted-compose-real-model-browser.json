@@ -1,0 +1,54 @@
+{
+  "run_url": "https://github.com/wanghaibing07/procureflow/actions/runs/44010545421",
+  "tested_commit": "1d71f6173b21aa225f70f215d5cd358a478911d4",
+  "workflow_result": "success",
+  "environment": "GitHub-hosted Ubuntu; one isolated Docker Compose application, MySQL, mock ERP and local model environment, accessed by automated Chromium; synthetic data",
+  "model": {
+    "name": "Qwen/Qwen2.5-0.5B-Instruct-GGUF q4_k_m",
+    "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+    "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+    "llama_cpp_release": "b12433",
+    "llama_archive_sha256": "209023cfc6061720802c103e5b7ba9f99e9304a3bdcd035fc50c3fba064cb79f",
+    "model_timeout_seconds_per_request": 120,
+    "request_id": "ff2fa2e4-aba8-4a7c-bf91-225bddcd348f",
+    "http_status": 200,
+    "model_calls": 2,
+    "input_tokens": 2178,
+    "output_tokens": 378,
+    "agent_elapsed_ms": 17680,
+    "ui_to_response_elapsed_ms": 17755,
+    "ui_elapsed_ms": 17764,
+    "timing_limitations": "Agent and UI elapsed times include work beyond model inference; none is a pure inference benchmark.",
+    "prompt": "查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。",
+    "answer": "查询全部物料当前库存和缺口如下：\n\n1. 安装支架: 25\n   - 储留: 8\n   - 有发货日期: 15\n   - 预测需求: 42\n   - 安全库存: 10\n   - 短缺: 20\n   - 有发货截止日期: 2026-01-08\n   - 等待的净可用库存: 32\n   - 总需求: 52\n\n2. 密封垫: 3\n   - 储留: 2\n   - 有发货日期: 0\n   - 预测需求: 21\n   - 安全库存: 5\n   - 短缺: 23\n   - 有发货截止日期: 2026-01-08\n   - 等待的净可用库存: 3\n   - 总需求: 26\n\n3. 包装标签: 120\n   - 储留: 20\n   - 有发货日期: 0\n   - 预测需求: 28\n   - 安全库存: 20\n   - 短缺: 0\n   - 有发货截止日期: 2026-01-08\n   - 等待的净可用库存: 100\n   - 总需求: 48\n\n请注意，由于库存已满，有发货截止日期，且有发货库存，因此总需求未达到需求上限。",
+    "tool_event": {"step": 1, "tool": "list_stock", "outcome": "ok", "elapsed_ms": 2, "result_count": 3},
+    "trace_corroboration": "The browser request ID, completed database Agent run, model call count and successful list_stock event were cross-checked by the harness.",
+    "semantic_review": "Not passed on AI-assisted review: the GASKET heading states 3 without identifying it as net available stock, although its later net-available figure of 3 is correct; the synthetic catalog has 5 on hand and 2 reserved. The answer describes the 2026-01-08 demand deadline as a shipment deadline and concludes that stock is full without supporting evidence. Independent human review remains pending."
+  },
+  "browser_business_checks": {
+    "automated_actors": ["demo-buyer", "demo-approver"],
+    "pre_confirmation": "The script observed no draft after the model query and before the automated buyer confirmed the preview.",
+    "preview_and_draft": "Automated Chromium selected BRACKET and confirmed the server preview; draft lines matched the preview: S-FAST, quantity 20, unit price 11.50, total 230.00.",
+    "draft_id": "88ca4fdb-d96b-4d19-a791-599b5db0ef7e",
+    "outcome": "The browser/API recorded approval and mock ERP submission with created, approved and submitted audit events and displayed the receipt.",
+    "erp_reference": "MOCK-3310258FBD8745C6AEFC132FB28B6436",
+    "retries": "The repeated confirmation returned the same draft; the repeated ERP submission returned the same reference and audit sequence."
+  },
+  "storage_crosscheck": {
+    "mysql_draft_count": 1,
+    "mysql_event_count": 3,
+    "erp_receipt_count": 1,
+    "matching_draft_id_and_receipt": true,
+    "matching_selected_line_fields": ["sku", "supplier_id", "quantity", "unit_price"],
+    "scope": "The harness compared the draft ID and receipt across the browser result, Compose MySQL draft and mock ERP SQLite receipt, checked the listed line fields in MySQL and ERP, checked the browser and MySQL totals, and checked MySQL audit events. It did not compare all line fields such as due_date; the artifact's same_id_reference_and_lines label is broader than the actual assertions."
+  },
+  "restart_verification": "After restarting the application container, the API returned the same submitted draft and ERP reference.",
+  "tls_and_authentication": "The harness recorded successful authenticated HTTPS and rejection checks for missing authentication, wrong hostname and an untrusted CA.",
+  "cleanup": "The harness reported removal of Compose containers, volumes, networks and project image tags; this does not establish removal of every underlying runner image or other resource.",
+  "limitations": [
+    "The automated flow passed, but the model answer did not pass the stated semantic review; workflow success is not answer accuracy.",
+    "The buyer and approver were automated identities, not independent human UAT.",
+    "This was a GitHub-hosted synthetic experiment with Qwen 0.5B, not the VMware or Magpie run.",
+    "One scenario and no actual billing do not establish production accuracy, efficiency or cost."
+  ]
+}

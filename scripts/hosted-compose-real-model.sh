@@ -366,18 +366,40 @@ with sqlite3.connect('/data/erp.sqlite3') as c:
 assert len(rows)==1 and rows[0][0]==sys.argv[1]
 print(json.dumps({'draft_id':rows[0][0],'lines':json.loads(rows[0][1]),'reference':rows[0][2],'receipt_count':len(rows)}))
 PY
-python3 - "$PF_EVIDENCE_DIR/browser-acceptance.json" "$private/mysql.json" "$private/erp.json" "$public/storage-crosscheck.json" <<'PY'
-import json,sys
+python3 - "$PF_EVIDENCE_DIR/browser-acceptance.json" "$private/mysql.json" "$private/erp.json" "$public/storage-crosscheck.json" "$public/provenance.json" "$root/scripts/hosted-compose-real-model.sh" <<'PY'
+import hashlib,json,re,sys
+from datetime import date
 from decimal import Decimal
+from pathlib import Path
 browser,mysql,erp=(json.load(open(p,encoding='utf8')) for p in sys.argv[1:4]); d=browser['draft']
+provenance=json.load(open(sys.argv[5],encoding='utf8')); source_commit=provenance['source_commit']
+assert isinstance(source_commit,str) and re.fullmatch(r'[0-9a-f]{40}',source_commit)
 assert d['draft_id']==mysql['draft_id']==erp['draft_id'] and d['erp_reference']==mysql['reference']==erp['reference']
-assert Decimal(str(d['total']))==Decimal(str(mysql['total']))==Decimal('230.00')
-for lines in (mysql['lines'],erp['lines']):
- assert len(lines)==1
+fields={'sku','supplier_id','quantity','unit_price','due_date'}
+def canonical_line(lines):
+ assert isinstance(lines,list) and len(lines)==1
  line=lines[0]
- assert line['sku']=='BRACKET' and line['supplier_id']=='S-FAST' and line['quantity']==20 and Decimal(str(line['unit_price']))==Decimal('11.50')
+ # Fail closed on missing or new fields rather than silently treating a
+ # partial comparison as equality of complete purchase lines.
+ assert isinstance(line,dict) and set(line)==fields
+ assert isinstance(line['sku'],str) and isinstance(line['supplier_id'],str)
+ assert type(line['quantity']) is int and line['quantity']>0
+ assert isinstance(line['unit_price'],str)
+ price=Decimal(line['unit_price']); assert price.is_finite() and price>0
+ due=line['due_date']; assert isinstance(due,str) and date.fromisoformat(due).isoformat()==due
+ return (line['sku'],line['supplier_id'],line['quantity'],price,due)
+mysql_line=canonical_line(mysql['lines']); erp_line=canonical_line(erp['lines'])
+assert mysql_line==erp_line
+assert mysql_line[:4]==(d['sku'],d['supplier_id'],d['quantity'],Decimal(str(d['unit_price'])))
+assert mysql_line[:4]==('BRACKET','S-FAST',20,Decimal('11.50'))
+assert Decimal(str(d['total']))==Decimal(str(mysql['total']))==mysql_line[2]*mysql_line[3]==Decimal('230.00')
 json.dump({'draft_id':d['draft_id'],'receipt':d['erp_reference'],'mysql_draft_count':1,'mysql_event_count':mysql['event_count'],
- 'erp_receipt_count':erp['receipt_count'],'same_id_reference_and_lines':True},open(sys.argv[4],'w',encoding='utf8'),indent=2)
+ 'erp_receipt_count':erp['receipt_count'],'source_commit':source_commit,
+ 'script_sha256':hashlib.sha256(Path(sys.argv[6]).read_bytes()).hexdigest(),
+ 'draft_id_and_receipt_match':True,'mysql_erp_full_line_fields_compared':sorted(fields),
+ 'mysql_erp_full_line_match':True,'browser_summary_line_fields_compared':['sku','supplier_id','quantity','unit_price'],
+ 'browser_due_date_compared':False,'browser_summary_mysql_total_matches_line_calculation':True},
+ open(sys.argv[4],'w',encoding='utf8'),indent=2)
 PY
 event "$phase" passed
 
