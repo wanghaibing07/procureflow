@@ -457,8 +457,8 @@ class AgentService:
                     "supplier's minimum order as if it were an orderable quote. "
                     "Use net_available and total_required from the tools; shortage equals total_required minus "
                     "net_available, floored at zero. Net available equals on-hand minus reserved plus on-time inbound: "
-                    "reserved stock has already been subtracted, not included as available. A due_date is a required "
-                    "deadline, not a confirmed or estimated delivery date. Never label due_date as delivery date or "
+                    "reserved stock has already been subtracted, not included as available. A required_by_date is a demand "
+                    "deadline, not a confirmed or estimated delivery date. Never label required_by_date as delivery date or "
                     "delivery estimate; supplier lead_days is a duration, not an actual promise. "
                     "A quote with lead_days exceeding the planning window means only that the quoted reference "
                     "duration exceeds that window; do not assert the supplier is actually unable to deliver on time. "
@@ -525,9 +525,11 @@ class AgentService:
                 if name in ("list_stock", "list_recommendations"):
                     stock = item.stock if name == "list_recommendations" else item
                     stock_value = value["stock"] if name == "list_recommendations" else value
+                    stock_value["required_by_date"] = stock_value.pop("due_date")
                     stock_value["net_available"] = stock.on_hand - stock.reserved + stock.inbound_by_due
                     stock_value["total_required"] = stock.forecast_demand + stock.safety_stock
                 if name == "list_recommendations" and item.line is not None:
+                    value["line"]["required_by_date"] = value["line"].pop("due_date")
                     value["total_amount"] = format(item.line.amount, ".2f")
                 if name == "list_recommendations" and item.reason == "supplier_cannot_meet_due":
                     value["reason_explanation"] = (
@@ -557,7 +559,7 @@ class AgentService:
             output = {"items": serialized, "truncated": result_count > MAX_CATALOG_ROWS}
             if name in ("list_stock", "list_recommendations"):
                 output["date_semantics"] = {
-                    "due_date": "Demand deadline, not a confirmed or estimated supplier delivery date.",
+                    "required_by_date": "Demand deadline, not a confirmed or estimated supplier delivery date.",
                 }
             if name == "list_stock":
                 output["availability_semantics"] = (

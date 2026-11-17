@@ -176,6 +176,8 @@ def test_stock_tool_does_not_present_shortage_as_supplier_availability(workflow)
         output = tool_output(script, 1)
         gasket = next(item for item in output["items"] if item["sku"] == "GASKET")
         assert gasket["shortage"] == 23
+        assert gasket["required_by_date"] == "2026-01-08"
+        assert "due_date" not in gasket
         assert "supplier_id" not in gasket
         assert "does not establish" in output["availability_semantics"]
         assert "list_recommendations" in output["availability_semantics"]
@@ -646,7 +648,11 @@ def test_recommendation_tool_exposes_computed_order_and_unavailable_supplier(wor
         assert "reference lead time exceeding the planning window" in rows["GASKET"]["reason_explanation"]
         assert "does not establish actual supplier availability" in rows["GASKET"]["reason_explanation"]
         output = tool_output(script, 1)
-        assert "not a confirmed or estimated" in output["date_semantics"]["due_date"]
+        assert rows["BRACKET"]["stock"]["required_by_date"] == "2026-01-08"
+        assert rows["BRACKET"]["line"]["required_by_date"] == "2026-01-08"
+        assert "due_date" not in rows["BRACKET"]["stock"]
+        assert "due_date" not in rows["BRACKET"]["line"]
+        assert "not a confirmed or estimated" in output["date_semantics"]["required_by_date"]
         assert "cannot manually choose" in output["selection_policy"]
         assert result.trace.events[0].tool == "list_recommendations"
 
