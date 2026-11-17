@@ -31,7 +31,7 @@ uv run --locked --env-file .env uvicorn procureflow.api:app --port 8000
 
 ## 运行与测试
 
-项目已验证角色权限、采购预览与确认、草案重试、审批和模拟 ERP 回执；模型、浏览器、MySQL 和模拟 ERP 的同环境运行结果见[联合运行记录](evidence/hosted-compose-real-model-browser-crosscheck.json)。[模型场景记录](evidence/magpie-confirmation-evaluation-v4.json)保存了库存、报价和边界请求的回答，部分回答存在错误，使用时应以服务端数据为准。其他实验结果与历史版本见[证据目录](evidence/)，每条记录包含对应的运行范围；[GitHub Actions](https://github.com/wanghaibing07/procureflow/actions/workflows/test.yml)可按提交查看测试结果。
+项目已验证角色权限、采购预览与确认、草案重试、审批和模拟 ERP 回执；模型、浏览器、MySQL 和模拟 ERP 的同环境运行结果见[联合运行记录](evidence/hosted-compose-real-model-browser-crosscheck.json)。[模型场景记录](evidence/magpie-confirmation-evaluation-v5.json)保存了库存、报价和边界请求的回答，部分回答存在错误，使用时应以服务端数据为准。其他实验结果与历史版本见[证据目录](evidence/)，每条记录包含对应的运行范围；[GitHub Actions](https://github.com/wanghaibing07/procureflow/actions/workflows/test.yml)可按提交查看测试结果。
 
 ## 演示路径
 

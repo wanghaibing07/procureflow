@@ -84,6 +84,11 @@
     .choice.orderable { border-left-color: var(--accent); }
     .choice label, .checkbox-line { display: flex; align-items: center; gap: .6rem; min-height: 44px; }
     input[type=checkbox] { width: 1.15rem; height: 1.15rem; margin: 0; accent-color: var(--accent); flex: none; }
+    .quote-scroll { overflow-x: auto; max-inline-size: 100%; }
+    .quote-table { min-inline-size: 30rem; }
+    .quote-table caption { text-align: left; font-weight: 650; padding-block: .3rem; }
+    .quote-table tbody th { background: transparent; white-space: normal; overflow-wrap: anywhere; }
+    .quote-details button { margin-top: .4rem; }
     .agent-answer { margin-top: .9rem; padding: .8rem; border-left: 3px solid var(--accent); background: var(--paper); white-space: pre-wrap; overflow-wrap: anywhere; }
     #agent-trace { overflow-wrap: anywhere; }
     details { margin-top: .65rem; }
@@ -150,6 +155,10 @@
             <table><thead><tr><th scope="col">物料</th><th scope="col">现存</th><th scope="col">预留</th><th scope="col">按期在途</th><th scope="col">预计需求</th><th scope="col">安全库存</th><th scope="col">缺口</th></tr></thead>
             <tbody id="stock"></tbody></table>
           </div>
+          <details id="quote-catalog">
+            <summary>查看各物料的供应商报价</summary>
+            <div id="quote-items"></div>
+          </details>
           <form id="new-draft" aria-label="生成采购草案">
             <div class="choices" id="recommendations"></div>
             <button id="create-draft" class="primary" type="submit" disabled>查看采购预览</button>
@@ -516,7 +525,8 @@
       element("pending-recovery").hidden = true;
       element("pending-items").replaceChildren();
       element("legacy-recovery").hidden = true;
-      for (const id of ["stock", "recommendations", "drafts", "drafts-help", "agent-answer", "agent-evidence", "agent-trace", "system-rules-list"]) element(id).replaceChildren();
+      for (const id of ["stock", "quote-items", "recommendations", "drafts", "drafts-help", "agent-answer", "agent-evidence", "agent-trace", "system-rules-list"]) element(id).replaceChildren();
+      element("quote-catalog").open = false;
       optionalModel();
       notice(message, error);
       element("token").focus();
@@ -570,9 +580,92 @@
       }
     }
 
+    function quoteDetails(sku, materialName, session) {
+      const details = node("details", undefined, "quote-details");
+      details.append(node("summary", materialName + "（" + sku + "）"));
+      const status = node("p", "", "muted");
+      status.setAttribute("role", "status");
+      const content = node("div");
+      const refresh = node("button", "刷新报价");
+      refresh.type = "button";
+      refresh.hidden = true;
+      details.append(status, content, refresh);
+      let loading = false;
+      const current = () => active === session && details.isConnected;
+
+      async function loadQuotes() {
+        if (!current() || loading) return;
+        loading = true;
+        refresh.setAttribute("aria-disabled", "true");
+        status.textContent = "正在加载报价…";
+        content.replaceChildren();
+        try {
+          const quotes = await request("/api/quotes/" + encodeURIComponent(sku), session);
+          if (!current()) return;
+          if (!Array.isArray(quotes) || quotes.some(quote => !quote || quote.sku !== sku ||
+            typeof quote.supplier_id !== "string" || !quote.supplier_id ||
+            typeof quote.supplier_name !== "string" || !quote.supplier_name ||
+            typeof quote.unit_price !== "string" || !/^\d+(?:\.\d{1,2})?$/.test(quote.unit_price) ||
+            !Number.isFinite(Number(quote.unit_price)) || Number(quote.unit_price) <= 0 ||
+            !Number.isSafeInteger(quote.lead_days) || quote.lead_days < 0 ||
+            !Number.isSafeInteger(quote.min_order) || quote.min_order < 1)) {
+            throw new Error("invalid quotes");
+          }
+          status.textContent = quotes.length ? "供货周期为报价中的参考天数。" : "当前目录没有报价。";
+          refresh.textContent = "刷新报价";
+          refresh.hidden = false;
+          if (!quotes.length) return;
+          const wrapper = node("div", undefined, "quote-scroll");
+          wrapper.tabIndex = 0;
+          wrapper.setAttribute("role", "region");
+          wrapper.setAttribute("aria-label", materialName + "供应商报价");
+          const table = node("table", undefined, "quote-table");
+          table.append(node("caption", materialName + "供应商报价"));
+          const head = node("thead");
+          const headings = node("tr");
+          for (const label of ["供应商", "单价", "供货周期", "起订量"]) {
+            const th = node("th", label);
+            th.scope = "col";
+            headings.append(th);
+          }
+          head.append(headings);
+          const body = node("tbody");
+          for (const quote of quotes) {
+            const row = node("tr");
+            const supplier = node("th", quote.supplier_name + "（" + quote.supplier_id + "）");
+            supplier.scope = "row";
+            row.append(supplier, node("td", amount(quote.unit_price)), node("td", quote.lead_days + " 天"),
+              node("td", quote.min_order + " 件"));
+            body.append(row);
+          }
+          table.append(head, body);
+          wrapper.append(table);
+          content.append(wrapper);
+        } catch (error) {
+          if (!current()) return;
+          if (error.status === 401) {
+            clearSession("令牌无效，请重新验证身份。", true);
+            return;
+          }
+          status.textContent = "报价加载失败，请重试。";
+          refresh.textContent = "重新加载报价";
+          refresh.hidden = false;
+        } finally {
+          loading = false;
+          refresh.setAttribute("aria-disabled", "false");
+        }
+      }
+
+      refresh.addEventListener("click", loadQuotes);
+      details.addEventListener("toggle", () => { if (details.open) void loadQuotes(); });
+      return details;
+    }
+
     function renderStock(stock, recommendations) {
       const tbody = element("stock");
       tbody.replaceChildren();
+      const quoteItems = element("quote-items");
+      quoteItems.replaceChildren();
       for (const item of stock) {
         const row = node("tr");
         const material = node("td", item.name);
@@ -581,6 +674,7 @@
         for (const value of [item.on_hand, item.reserved, item.inbound_by_due, item.forecast_demand, item.safety_stock]) row.append(node("td", value));
         row.append(node("td", item.shortage, item.shortage ? "shortage" : ""));
         tbody.append(row);
+        quoteItems.append(quoteDetails(item.sku, item.name, active));
       }
       const choices = element("recommendations");
       const previous = new Set(selectedSkus());
