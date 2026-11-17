@@ -218,12 +218,12 @@ def test_preview_binds_actor_sku_window_and_current_lines(deployment):
     assert error.value.status_code == 409
 
 
-def test_preview_is_single_use_even_with_different_keys_and_survives_restart(deployment):
+def test_preview_is_single_use_even_with_different_keys_and_after_connection_reset(deployment):
     client, settings, _ = deployment
     token, key = preview_bracket(client, settings), str(uuid4())
     first = create_bracket_draft(client, settings, key, token)
     assert first.status_code == 200
-    # Force new DB connections to model application process replacement.
+    # Dispose the connection pool; a separate test covers application process replacement.
     client.app.state.db.engine.dispose()
     assert create_bracket_draft(client, settings, key, token).json()["draft_id"] == first.json()["draft_id"]
     assert create_bracket_draft(client, settings, str(uuid4()), token).status_code == 409
