@@ -1,0 +1,71 @@
+{
+  "status": "pass",
+  "stage": "complete",
+  "environment": "Chromium against an isolated synthetic demo",
+  "model_answer_semantics": "actual response recorded; the server business data remains authoritative",
+  "checks": {
+    "configured_model_and_app": true,
+    "empty_synthetic_database": true,
+    "model_query_called_read_only_tool": true,
+    "no_model_draft": true,
+    "preview_api_success": true,
+    "preview_display_matches_synthetic_business_values": true,
+    "no_draft_before_explicit_confirmation": true,
+    "confirmed_draft_api_success": true,
+    "draft_matches_confirmed_preview": true,
+    "draft_visible_in_browser": true,
+    "draft_retry_is_idempotent": true,
+    "approver_approved": true,
+    "erp_submit_api_success": true,
+    "receipt_and_audit_returned": true,
+    "receipt_visible_in_browser": true,
+    "erp_submit_retry_is_idempotent": true
+  },
+  "model": {
+    "prompt": "查询安装支架 BRACKET 当前库存和补货缺口。",
+    "prompt_source": "actual_request",
+    "http_status": 200,
+    "ui_to_response_elapsed_ms": 43650,
+    "request_id": "48cf86aa-f480-418d-9dd5-98a501a17f95",
+    "response_request_id_matches": true,
+    "model": "qwen2.5-3b-instruct-q4_k_m",
+    "model_calls": 2,
+    "elapsed_ms": 42038,
+    "input_tokens": 2888,
+    "output_tokens": 186,
+    "answer": "对于SKU BRACKET (安装支架)，当前的可用库存为25个单位，预留库存为8个单位，预计到货时间为2026-01-08。总需求量为52个单位，短缺量为20个单位。在当前可用库存基础上加上预计到货量，即15个单位，总可用库存为32个单位。短缺量为20个单位，这是当前可用库存的差额。这意味着我们当前的需求量是52个单位，但只能从可用库存中获得32个单位，因此短缺20个单位。这并不足以创建一个购买请求，因为根据当前的库存情况，没有足够的库存来满足需求，且无明确的采购推荐或供应商信息。建议检查是否有采购推荐或供应商。",
+    "tool_events": [
+      {
+        "step": 1,
+        "tool": "list_stock",
+        "outcome": "ok",
+        "elapsed_ms": 2,
+        "result_count": 3
+      }
+    ],
+    "draft_id_is_null": true,
+    "ui_elapsed_ms": 43656,
+    "timing_note": "UI timings include deliberate recording pauses; they are not pure inference time."
+  },
+  "draft": {
+    "draft_id": "b14c50f3-e4d1-4e5d-8a7e-4add6f0ebc55",
+    "sku": "BRACKET",
+    "supplier_id": "S-FAST",
+    "quantity": 20,
+    "unit_price": "11.50",
+    "total": "230.00",
+    "status": "submitted",
+    "erp_reference": "MOCK-E80CC3DE2623423EB1AF0B3191C63936",
+    "events": [
+      "created",
+      "approved",
+      "submitted"
+    ]
+  },
+  "video": {
+    "recorded": true,
+    "private_only": true,
+    "edited": false,
+    "pacing": "Deliberate presentation pauses are part of the continuous recording."
+  }
+}

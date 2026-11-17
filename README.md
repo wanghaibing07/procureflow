@@ -97,6 +97,8 @@ uv run --locked python scripts/evaluate_agent.py --base-url http://127.0.0.1:800
 
 结果文件不得已存在。检查范围包括工具调用、草案内容和未授权写入；模型回答需逐条复核。旧基准包含旧版模型辅助建单，不能直接与当前流程的结果比较。
 
+一次 [Qwen2.5-3B 联合运行](evidence/hosted-8423d04/browser-acceptance.json)完成了库存查询、采购确认和模拟 ERP 提交。该次回答把需求截止日误称预计到货日期，也错误解释了库存不足与建单的关系；页面中的库存、预览和草案以服务端结果为准。[运行版本](evidence/hosted-8423d04/provenance.json)和[存储对照](evidence/hosted-8423d04/storage-crosscheck.json)可供复核。
+
 ### 演示与交接检查
 
 可按以下步骤检查：
