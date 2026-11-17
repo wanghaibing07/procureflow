@@ -40,6 +40,8 @@ class FakeApplication:
         self.rules = [dict(rule) for rule in RULES]
         self.omit_rules = False
         self.answer = f"synthetic answer {BUYER}"
+        self.changed_quote = False
+        self.changed_stock = False
 
     def response(self, request):
         self.calls.append((request.method, request.url.path))
@@ -48,6 +50,28 @@ class FakeApplication:
             return httpx.Response(200, json={"model_configured": True})
         if request.url.path == "/api/me":
             return httpx.Response(200, json={"role": role})
+        if request.url.path == "/api/stock":
+            fields = ("sku", "name", "on_hand", "reserved", "inbound_by_due", "forecast_demand", "safety_stock", "shortage")
+            data = [
+                ("BRACKET", "安装支架", 25, 8, 15, 42, 10, 20),
+                ("GASKET", "密封垫", 5, 2, 0, 21, 5, 23),
+                ("LABEL", "包装标签", 120, 20, 0, 28, 20, 0),
+            ]
+            rows = [dict(zip(fields, row)) for row in data]
+            if self.changed_stock:
+                rows[0]["reserved"] = 7
+            return httpx.Response(200, json=rows)
+        if request.url.path.startswith("/api/quotes/"):
+            sku = request.url.path.rsplit("/", 1)[-1]
+            data = {
+                "BRACKET": [("S-FAST", "11.50", 4, 10), ("S-VOLUME", "8.00", 6, 40)],
+                "GASKET": [("S-SLOW", "3.20", 12, 15)],
+            }
+            rows = [dict(zip(("supplier_id", "unit_price", "lead_days", "min_order"), values), sku=sku)
+                    for values in data.get(sku, [])]
+            if self.changed_quote and sku == "BRACKET":
+                rows[1]["min_order"] = 41
+            return httpx.Response(200, json=rows)
         if request.url.path == "/api/recommendations":
             return httpx.Response(200, json=[
                 {"stock": {"sku": "BRACKET", "shortage": 20},
@@ -129,6 +153,15 @@ def test_suite_is_bounded_and_never_calls_approval_or_submission():
     assert all(case["confirmation"] == "BRACKET preview confirmation submitted" for case in result["cases"] if case["draft"])
     assert all("/decision" not in path and "/submit" not in path for _, path in app.calls)
     assert BUYER not in json.dumps(result) and APPROVER not in json.dumps(result)
+
+
+@pytest.mark.parametrize("field", ["changed_quote", "changed_stock"])
+def test_stale_fixture_stops_before_any_model_call(field):
+    app = FakeApplication()
+    setattr(app, field, True)
+    with client_for(app) as client, pytest.raises(ValueError, match="fixed evaluation dataset"):
+        evaluation.run_suite(client, BASE, TOKENS)
+    assert all(path != "/api/agent/run" for _, path in app.calls)
 
 
 def test_failure_is_reported_and_later_cases_run():

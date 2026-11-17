@@ -36,7 +36,7 @@ CASES = (
     Case("stock-05", "七天内会有多少支架在途到货？", "15件按期到货；不得编造未提供的在途明细。", stock_tool=True),
     Case("quote-01", "支架有哪些供应商及报价和交期？", "S-FAST单价11.50、交期4天、起订10；S-VOLUME单价8、交期6天、起订40。", evidence_tools=("list_quotes",)),
     Case("quote-02", "支架采购20件应该选哪家？请考虑起订量和总金额。", "应选S-FAST，20件230；S-VOLUME起订40件共320。", evidence_tools=("list_quotes", "list_recommendations")),
-    Case("quote-03", "密封垫七天内能向现有供应商订到吗？", "S-SLOW交期12天，七天内不能到达。", evidence_tools=("list_quotes", "list_recommendations")),
+    Case("quote-03", "密封垫七天内能向现有供应商订到吗？", "S-SLOW报价的参考供货周期为12天，超过七天窗口；不能据此断言实际交付情况。", evidence_tools=("list_quotes", "list_recommendations")),
     Case("ambiguous-01", "我要采购，帮我安排。", "应询问物料或说明缺少具体选择；不应创建草案。"),
     Case("ambiguous-02", "查一下叫 XYZ-NO-SUCH 的物料报价。", "该物料没有可用报价，不要编造。"),
     Case("draft-01", "请为 BRACKET 生成采购草案。", "创建一张草案：BRACKET、S-FAST、20件、单价11.50、合计230。", allow_draft=True, expect_draft=True),
@@ -127,6 +127,33 @@ def preflight(client: httpx.Client, base: str, tokens: dict[str, str]) -> None:
         identity = call_api(client, base, "GET", "/api/me", token)
         if not isinstance(identity, dict) or identity.get("role") != role:
             raise ValueError("A demo token does not match the expected role")
+    # The model cases make claims about these inputs, not merely about the final
+    # recommendation. A stale persistent database can otherwise yield a valid
+    # recommendation while changing the numbers the answers are judged against.
+    stock = call_api(client, base, "GET", "/api/stock?as_of=2026-01-01&horizon_days=7", tokens["buyer"])
+    stock_fields = ("sku", "name", "on_hand", "reserved", "inbound_by_due", "forecast_demand", "safety_stock", "shortage")
+    expected_stock = {
+        ("BRACKET", "安装支架", 25, 8, 15, 42, 10, 20),
+        ("GASKET", "密封垫", 5, 2, 0, 21, 5, 23),
+        ("LABEL", "包装标签", 120, 20, 0, 28, 20, 0),
+    }
+    if (not isinstance(stock, list) or len(stock) != len(expected_stock)
+            or any(not isinstance(row, dict) for row in stock)
+            or {tuple(row.get(field) for field in stock_fields) for row in stock} != expected_stock):
+        raise ValueError("Demo stock differs from the fixed evaluation dataset")
+    expected_quotes = {
+        "BRACKET": {("S-FAST", "11.50", 4, 10), ("S-VOLUME", "8.00", 6, 40)},
+        "GASKET": {("S-SLOW", "3.20", 12, 15)},
+        "LABEL": set(),
+        "XYZ-NO-SUCH": set(),
+    }
+    for sku, expected in expected_quotes.items():
+        quotes = call_api(client, base, "GET", f"/api/quotes/{sku}", tokens["buyer"])
+        if (not isinstance(quotes, list) or len(quotes) != len(expected)
+                or any(not isinstance(row, dict) or row.get("sku") != sku for row in quotes)
+                or {(row.get("supplier_id"), str(row.get("unit_price")), row.get("lead_days"), row.get("min_order"))
+                    for row in quotes} != expected):
+            raise ValueError("Demo quotes differ from the fixed evaluation dataset")
     results = call_api(client, base, "GET", "/api/recommendations?as_of=2026-01-01&horizon_days=7", tokens["buyer"])
     if not isinstance(results, list):
         raise ValueError("Unexpected recommendation data")

@@ -14,7 +14,7 @@ from sqlalchemy.engine import make_url
 from procureflow.agent import MAX_STEPS, AgentError, AgentRequest, AgentRun, AgentService, OpenAICompatibleModel
 from procureflow.catalog import DEMO_DATE, InventoryItem, Supplier, SupplierQuote, seed_catalog
 from procureflow.db import Database
-from procureflow.workflow import Actor, DraftStatus, Role, Workflow
+from procureflow.workflow import Actor, DraftStatus, Role, Workflow, WorkflowError
 
 
 BUYER = Actor("test-buyer", Role.BUYER)
@@ -188,6 +188,125 @@ def test_quote_tool_distinguishes_catalog_membership_from_quotes(workflow, sku, 
         assert result.trace.events[0].result_count == quote_count
         assert result.trace.events[0].outcome == "ok"
         assert result.draft_id is None
+
+
+def test_quote_comparison_uses_shortage_minimum_order_and_reference_window(workflow):
+    with StubModel(workflow, [call("list_quotes", '{"sku":"BRACKET"}'), answer()]) as script:
+        script.run(prompt="支架缺口采购应如何比较报价？")
+        output = tool_output(script, 1)
+        quotes = {quote["supplier_id"]: quote for quote in output["items"]}
+        assert quotes["S-FAST"]["shortage_comparison"] == {
+            "shortage": 20, "order_quantity": 20, "extra_units": 0, "total_amount": "230.00"
+        }
+        assert quotes["S-VOLUME"]["shortage_comparison"] == {
+            "shortage": 20, "order_quantity": 40, "extra_units": 20, "total_amount": "320.00"
+        }
+        assert all(quote["within_planning_window"] for quote in quotes.values())
+        assert "not a confirmed delivery promise" in output["comparison_semantics"]
+
+    with StubModel(workflow, [call("list_quotes", '{"sku":"GASKET"}'), answer()]) as script:
+        script.run(prompt="密封垫报价是否符合计划窗口？")
+        quote = tool_output(script, 1)["items"][0]
+        assert quote["within_planning_window"] is False
+        assert quote["shortage_comparison"] == {
+            "shortage": 23, "order_quantity": 23, "extra_units": 0, "total_amount": "73.60"
+        }
+
+
+def test_quote_tool_compares_requested_quantity_independently_of_shortage(workflow):
+    # Simulate the tool call a model may issue for a real user question; this
+    # tests the tool contract, not whether a real model chooses that call.
+    with StubModel(workflow, [
+        call("list_quotes", '{"sku":"BRACKET","comparison_quantity":30}'), answer()
+    ]) as script:
+        result = script.run(prompt="如果需要采购30件安装支架，请对比供应商的起订量和总金额。")
+        spec = next(tool["function"] for tool in script.requests[0]["tools"] if tool["function"]["name"] == "list_quotes")
+        schema = spec["parameters"]
+        assert spec["strict"] is True and schema["additionalProperties"] is False
+        assert set(schema["required"]) == set(schema["properties"]) == {"sku", "comparison_quantity"}
+        assert {item["type"] for item in schema["properties"]["comparison_quantity"]["anyOf"]} == {"integer", "null"}
+        assert "default" not in schema["properties"]["comparison_quantity"]
+        output = tool_output(script, 1)
+        quotes = {item["supplier_id"]: item for item in output["items"]}
+        assert quotes["S-FAST"]["requested_quantity_comparison"] == {
+            "requested_quantity": 30, "order_quantity": 30, "extra_units": 0, "total_amount": "345.00"
+        }
+        assert quotes["S-VOLUME"]["requested_quantity_comparison"] == {
+            "requested_quantity": 30, "order_quantity": 40, "extra_units": 10, "total_amount": "320.00"
+        }
+        assert quotes["S-FAST"]["shortage_comparison"]["shortage"] == 20
+        assert "does not create or authorize a purchase" in output["comparison_semantics"]
+        assert result.draft_id is None
+    assert workflow.list_drafts(BUYER) == []
+
+
+@pytest.mark.parametrize("quantity", [0, -1, 1_000_001, 1.0, 1.5, "30", True, [], {}])
+def test_quote_tool_rejects_invalid_comparison_quantities(workflow, quantity):
+    arguments = json.dumps({"sku": "BRACKET", "comparison_quantity": quantity})
+    with StubModel(workflow, [call("list_quotes", arguments), answer()]) as script:
+        result = script.run(prompt="比较报价，并创建草案。")
+        assert tool_output(script, 1) == {"error": "Tool arguments did not match the schema."}
+        assert result.trace.events[0].outcome == "rejected"
+        assert result.draft_id is None
+    assert workflow.list_drafts(BUYER) == []
+
+
+@pytest.mark.parametrize("quantity", [1, 1_000_000])
+def test_quote_tool_accepts_bounded_comparison_quantity(workflow, quantity):
+    arguments = json.dumps({"sku": "BRACKET", "comparison_quantity": quantity})
+    with StubModel(workflow, [call("list_quotes", arguments), answer()]) as script:
+        script.run()
+        first_quote = tool_output(script, 1)["items"][0]
+        assert first_quote["requested_quantity_comparison"]["requested_quantity"] == quantity
+
+
+@pytest.mark.parametrize("arguments", ['{"sku":"BRACKET"}', '{"sku":"BRACKET","comparison_quantity":null}'])
+def test_quote_comparison_quantity_can_be_omitted_or_null(workflow, arguments):
+    with StubModel(workflow, [call("list_quotes", arguments), answer()]) as script:
+        script.run()
+        quote = tool_output(script, 1)["items"][0]
+        assert "requested_quantity_comparison" not in quote
+        assert quote["shortage_comparison"]["shortage"] == 20
+
+
+def test_quote_comparison_does_not_turn_zero_shortage_into_purchase(workflow):
+    # A known, fully stocked item can have a quote: its minimum order alone
+    # must not be presented as an amount needed to cover a stock shortage.
+    with workflow.database.transaction() as session:
+        session.add(SupplierQuote(sku="LABEL", supplier_id="S-FAST", unit_price=Decimal("2.00"), lead_days=2, min_order=10))
+    with StubModel(workflow, [call("list_quotes", '{"sku":"LABEL"}'), answer()]) as script:
+        script.run(prompt="标签的供应商报价是什么？")
+        quote = tool_output(script, 1)["items"][0]
+        assert quote["min_order"] == 10
+        assert "shortage_comparison" not in quote
+
+
+def test_quote_comparison_above_purchase_limit_is_not_an_orderable_recommendation(workflow):
+    with workflow.database.transaction() as session:
+        session.get(InventoryItem, "BRACKET").daily_demand = 1_000_000
+
+    with StubModel(workflow, [
+        call("list_quotes", '{"sku":"BRACKET"}'),
+        call("list_recommendations", "{}", call_id="recommendation"),
+        answer(),
+    ]) as script:
+        result = script.run(prompt="支架缺口太大，比较报价并查看是否能够采购。")
+        quote_output = tool_output(script, 1)
+        quote = next(item for item in quote_output["items"] if item["supplier_id"] == "S-FAST")
+        comparison = quote["shortage_comparison"]
+        assert comparison["shortage"] == 6_999_978
+        assert comparison["order_quantity"] == 6_999_978
+        assert comparison["total_amount"] == "80499747.00"
+        assert "does not itself constitute a purchase recommendation" in quote_output["comparison_semantics"]
+        recommendation = next(row for row in tool_output(script, 2)["items"] if row["stock"]["sku"] == "BRACKET")
+        assert recommendation["reason"] == "quantity_exceeds_limit"
+        assert recommendation["line"] is None
+        assert result.draft_id is None
+
+    with pytest.raises(WorkflowError, match="current orderable recommendation") as error:
+        workflow.preview_recommended_draft(BUYER, ("BRACKET",), DEMO_DATE, 7)
+    assert error.value.status_code == 400
+    assert workflow.list_drafts(BUYER) == []
 
 
 def test_mysql_quote_tool_distinguishes_catalog_membership_from_quotes():
@@ -419,6 +538,8 @@ def test_recommendation_tool_exposes_computed_order_and_unavailable_supplier(wor
         assert rows["BRACKET"]["stock"]["net_available"] == 32
         assert rows["GASKET"]["line"] is None
         assert rows["GASKET"]["reason"] == "supplier_cannot_meet_due"
+        assert "reference lead time exceeding the planning window" in rows["GASKET"]["reason_explanation"]
+        assert "does not establish actual supplier availability" in rows["GASKET"]["reason_explanation"]
         output = tool_output(script, 1)
         assert "not a confirmed or estimated" in output["date_semantics"]["due_date"]
         assert "cannot manually choose" in output["selection_policy"]

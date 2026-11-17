@@ -12,7 +12,7 @@ from sqlalchemy import DateTime, JSON, String, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .catalog import InventoryItem, list_quotes, list_stock, recommend
+from .catalog import MAX_PURCHASE_QUANTITY, InventoryItem, list_quotes, list_stock, recommend
 from .contracts import Value
 from .db import Base, Database
 from .settings import DEFAULT_MODEL_TIMEOUT_SECONDS, validate_model_timeout
@@ -103,11 +103,12 @@ Sku = Annotated[str, StringConstraints(pattern=r"^[A-Z0-9][A-Z0-9_-]{0,39}$")]
 
 class _QuoteArgs(Value):
     sku: Sku
+    comparison_quantity: int | None = Field(default=None, strict=True, ge=1, le=MAX_PURCHASE_QUANTITY)
 
 
 _TOOLS = {
     "list_stock": (_EmptyArgs, "Read calculated stock and shortage for the supplied planning window; it does not check supplier availability."),
-    "list_quotes": (_QuoteArgs, "Read supplier quotes and lead times for one SKU, with its presence in the current catalog."),
+    "list_quotes": (_QuoteArgs, "Read supplier quotes for one SKU. Set comparison_quantity to the user's explicitly requested hypothetical quantity (1 to 1000000), or null if unspecified; compare it and current stock shortage against each minimum order and reference lead time."),
     "list_recommendations": (_EmptyArgs, "Read deterministic replenishment recommendations and reasons when no timely supplier is available."),
 }
 
@@ -117,6 +118,12 @@ def _tool_specs() -> list[dict]:
     for name, (param_type, description) in _TOOLS.items():
         schema = param_type.model_json_schema()
         schema.setdefault("required", [])
+        if param_type is _QuoteArgs:
+            # Strict function schemas require every property to be required.
+            # Null represents an omitted comparison quantity for providers;
+            # the parser still accepts older clients omitting this field.
+            schema["required"] = ["sku", "comparison_quantity"]
+            schema["properties"]["comparison_quantity"].pop("default", None)
         specs.append({
             "type": "function",
             "function": {
@@ -387,7 +394,9 @@ class AgentService:
                     "A rejected draft cannot be approved or submitted again; do not suggest retrying a rejected draft. "
                     "Drafts cannot be edited in this demo. If a purchase "
                     "request does not identify the desired SKU, ask the user which SKU they want. "
-                    "For item names, use list_stock to resolve the SKU. "
+                    "For item names, use list_stock to resolve the SKU. Do not claim a supplied SKU is incomplete, "
+                    "invalid, present or absent without checking catalog data using list_stock or list_quotes. "
+                    "When refusing an unauthorized action, do not invent an additional SKU problem. "
                     "A stock shortage alone does not prove that an eligible supplier or purchase recommendation exists. "
                     "Call list_recommendations before claiming a particular item has an available purchase recommendation; "
                     "if that is not established, say availability is unverified. "
@@ -398,13 +407,25 @@ class AgentService:
                     "For quote lookup, catalog_sku_found reports only whether the SKU is in this catalog. "
                     "An empty quotes list does not by itself mean the SKU is missing. If the SKU is absent from this "
                     "catalog, do not claim it cannot exist elsewhere. "
+                    "For a quote comparison, if the user explicitly specifies a quantity from 1 to 1000000, pass it "
+                    "as list_quotes comparison_quantity and use requested_quantity_comparison for that scenario; "
+                    "otherwise pass null and use shortage_comparison only for the actual stock shortage. "
+                    "A specified quantity is a hypothetical comparison, never approval to create or alter a draft. "
+                    "Do not silently substitute shortage for a different requested quantity; quantities outside "
+                    "the supported range cannot be compared by this tool. Use computed quantities, extra units and totals; "
+                    "do not invent percentages or compare a hypothetical amount below a "
+                    "supplier's minimum order as if it were an orderable quote. "
                     "Use net_available and total_required from the tools; shortage equals total_required minus "
-                    "net_available, floored at zero. Reserved stock reduces availability. A due_date is a required "
+                    "net_available, floored at zero. Net available equals on-hand minus reserved plus on-time inbound: "
+                    "reserved stock has already been subtracted, not included as available. A due_date is a required "
                     "deadline, not a confirmed or estimated delivery date. Never label due_date as delivery date or "
                     "delivery estimate; supplier lead_days is a duration, not an actual promise. "
+                    "A quote with lead_days exceeding the planning window means only that the quoted reference "
+                    "duration exceeds that window; do not assert the supplier is actually unable to deliver on time. "
                     "Only a buyer can create drafts in the app. Only an approver can approve a draft, and only an "
                     "approver can submit an approved draft to the simulated ERP; a buyer cannot approve or submit it. Never suggest that a buyer "
-                    "submits a draft or an approver creates their own draft. "
+                    "submits a draft or an approver creates their own draft. A draft's creator cannot approve or reject "
+                    "that same draft; this is enforced by the application, not merely a recommendation. "
                     f"The current user's role is {actor.role.value}. Answer in the user's language. The fixed planning window is "
                     f"{as_of.isoformat()} to {due_date.isoformat()} ({horizon_days} days)."
                 ),
@@ -454,6 +475,8 @@ class AgentService:
                 elif isinstance(args, _QuoteArgs):
                     catalog_sku_found = session.get(InventoryItem, args.sku) is not None
                     items = list_quotes(session, args.sku)
+                    stock_risk = (next((stock for stock in list_stock(session, as_of, horizon_days)
+                                        if stock.sku == args.sku), None) if items else None)
                 else:
                     items = list_stock(session, as_of, horizon_days)
             result_count = len(items)
@@ -467,6 +490,30 @@ class AgentService:
                     stock_value["total_required"] = stock.forecast_demand + stock.safety_stock
                 if name == "list_recommendations" and item.line is not None:
                     value["total_amount"] = format(item.line.amount, ".2f")
+                if name == "list_recommendations" and item.reason == "supplier_cannot_meet_due":
+                    value["reason_explanation"] = (
+                        "All catalog quotes for this item have a reference lead time exceeding the planning "
+                        "window; this does not establish actual supplier availability or delivery promises."
+                    )
+                if name == "list_quotes":
+                    value["within_planning_window"] = item.lead_days <= horizon_days
+                    if args.comparison_quantity is not None:
+                        requested_quantity = args.comparison_quantity
+                        order_quantity = max(requested_quantity, item.min_order)
+                        value["requested_quantity_comparison"] = {
+                            "requested_quantity": requested_quantity,
+                            "order_quantity": order_quantity,
+                            "extra_units": order_quantity - requested_quantity,
+                            "total_amount": format(item.unit_price * order_quantity, ".2f"),
+                        }
+                    if stock_risk is not None and stock_risk.shortage > 0:
+                        order_quantity = max(stock_risk.shortage, item.min_order)
+                        value["shortage_comparison"] = {
+                            "shortage": stock_risk.shortage,
+                            "order_quantity": order_quantity,
+                            "extra_units": order_quantity - stock_risk.shortage,
+                            "total_amount": format(item.unit_price * order_quantity, ".2f"),
+                        }
                 serialized.append(value)
             output = {"items": serialized, "truncated": result_count > MAX_CATALOG_ROWS}
             if name in ("list_stock", "list_recommendations"):
@@ -485,6 +532,13 @@ class AgentService:
             if isinstance(args, _QuoteArgs):
                 output["sku"] = args.sku
                 output["catalog_sku_found"] = catalog_sku_found
+                output["comparison_semantics"] = (
+                    "shortage_comparison uses the current calculated stock shortage, not a user-specified quantity; "
+                    "requested_quantity_comparison uses the supplied hypothetical quantity and does not create "
+                    "or authorize a purchase. Each comparison does not itself constitute a purchase recommendation. "
+                    "within_planning_window compares reference lead_days with the planning window; it is not "
+                    "a confirmed delivery promise."
+                )
             outcome = "ok"
         except ValidationError:
             output = {"error": "Tool arguments did not match the schema."}
