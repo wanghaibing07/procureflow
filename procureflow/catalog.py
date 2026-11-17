@@ -91,20 +91,39 @@ def seed_catalog(session: Session, as_of: date = DEMO_DATE) -> None:
     session.flush()
 
 
-def list_stock(session: Session, as_of: date, horizon_days: int) -> list[StockRisk]:
+def _due_date(as_of: date, horizon_days: int) -> date:
     if type(horizon_days) is not int or not 1 <= horizon_days <= 30:
         raise ValueError("horizon_days must be an integer between 1 and 30")
 
     try:
-        due_date = as_of + timedelta(days=horizon_days)
+        return as_of + timedelta(days=horizon_days)
     except OverflowError as error:
         raise ValueError("as_of and horizon_days must produce a representable due date") from error
-    on_time_shipments = (
+
+
+def _on_time_shipments(as_of: date, due_date: date):
+    return (
         select(InboundShipment.sku, func.sum(InboundShipment.quantity).label("quantity"))
         .where(InboundShipment.expected_on.between(as_of, due_date))
         .group_by(InboundShipment.sku)
         .subquery()
     )
+
+
+def _stock_risk(item, inbound_by_due: int, horizon_days: int, due_date: date) -> StockRisk:
+    forecast_demand = item.daily_demand * horizon_days
+    inbound_quantity = int(inbound_by_due)
+    shortage = max(0, item.reserved + forecast_demand + item.safety_stock - item.on_hand - inbound_quantity)
+    return StockRisk(
+        sku=item.sku, name=item.name, on_hand=item.on_hand, reserved=item.reserved,
+        inbound_by_due=inbound_quantity, forecast_demand=forecast_demand,
+        safety_stock=item.safety_stock, shortage=shortage, due_date=due_date,
+    )
+
+
+def list_stock(session: Session, as_of: date, horizon_days: int) -> list[StockRisk]:
+    due_date = _due_date(as_of, horizon_days)
+    on_time_shipments = _on_time_shipments(as_of, due_date)
     statement = (
         select(InventoryItem, func.coalesce(on_time_shipments.c.quantity, 0))
         .outerjoin(on_time_shipments, on_time_shipments.c.sku == InventoryItem.sku)
@@ -112,22 +131,7 @@ def list_stock(session: Session, as_of: date, horizon_days: int) -> list[StockRi
     )
     result = []
     for item, inbound_by_due in session.execute(statement):
-        forecast_demand = item.daily_demand * horizon_days
-        inbound_quantity = int(inbound_by_due)
-        shortage = max(0, item.reserved + forecast_demand + item.safety_stock - item.on_hand - inbound_quantity)
-        result.append(
-            StockRisk(
-                sku=item.sku,
-                name=item.name,
-                on_hand=item.on_hand,
-                reserved=item.reserved,
-                inbound_by_due=inbound_quantity,
-                forecast_demand=forecast_demand,
-                safety_stock=item.safety_stock,
-                shortage=shortage,
-                due_date=due_date,
-            )
-        )
+        result.append(_stock_risk(item, inbound_by_due, horizon_days, due_date))
     return result
 
 
@@ -153,6 +157,41 @@ def _read_quotes(session: Session, skus: list[str]) -> list[Quote]:
 
 def list_quotes(session: Session, sku: str) -> list[Quote]:
     return _read_quotes(session, [sku])
+
+
+def stock_and_quotes(session: Session, sku: str, as_of: date, horizon_days: int) -> tuple[StockRisk | None, list[Quote]]:
+    """Read a SKU, its in-window inbound and its quotes from one statement snapshot.
+
+    Scalar columns are deliberate: the Session identity map may already hold
+    older ORM instances, which must not be mixed with this statement's rows.
+    """
+    due_date = _due_date(as_of, horizon_days)
+    inbound = _on_time_shipments(as_of, due_date)
+    statement = (
+        select(
+            InventoryItem.sku, InventoryItem.name, InventoryItem.on_hand, InventoryItem.reserved,
+            InventoryItem.daily_demand, InventoryItem.safety_stock,
+            func.coalesce(inbound.c.quantity, 0).label("inbound_by_due"),
+            SupplierQuote.supplier_id.label("quote_supplier_id"), Supplier.name.label("supplier_name"),
+            SupplierQuote.unit_price, SupplierQuote.lead_days, SupplierQuote.min_order,
+        )
+        .select_from(InventoryItem)
+        .outerjoin(inbound, inbound.c.sku == InventoryItem.sku)
+        .outerjoin(SupplierQuote, SupplierQuote.sku == InventoryItem.sku)
+        .outerjoin(Supplier, Supplier.supplier_id == SupplierQuote.supplier_id)
+        .where(InventoryItem.sku == sku)
+        .order_by(SupplierQuote.supplier_id)
+    )
+    rows = session.execute(statement).all()
+    if not rows:
+        return None, []
+    stock = _stock_risk(rows[0], rows[0].inbound_by_due, horizon_days, due_date)
+    quotes = [
+        Quote(sku=sku, supplier_id=row.quote_supplier_id, supplier_name=row.supplier_name,
+              unit_price=row.unit_price, lead_days=row.lead_days, min_order=row.min_order)
+        for row in rows if row.quote_supplier_id is not None and row.supplier_name is not None
+    ]
+    return stock, quotes
 
 
 def recommend(session: Session, as_of: date, horizon_days: int) -> list[Recommendation]:

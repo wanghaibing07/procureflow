@@ -22,7 +22,7 @@ jobs:
       - name: Run offline tests
         run: uv run --locked pytest -q
       - name: Check browser interaction logic
-        run: node --test tests/agent_evidence.test.cjs tests/quote_ui.test.cjs
+        run: node --test tests/agent_evidence.test.cjs tests/agent_quotes.test.cjs tests/quote_ui.test.cjs
       - name: Run isolated MySQL integration tests
         run: |
           password=$(openssl rand -hex 24)
@@ -51,4 +51,4 @@ jobs:
           else:
               raise SystemExit("MySQL did not become ready")
           PY
-          uv run --locked pytest -q tests/test_api.py tests/test_agent.py
+          uv run --locked pytest -q tests/test_api.py tests/test_agent.py tests/test_catalog.py

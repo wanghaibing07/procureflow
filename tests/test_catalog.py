@@ -1,8 +1,14 @@
 from datetime import date, timedelta
 from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor
+import os
+from threading import Event
+from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, event, func, select, update
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session
 
 from procureflow.catalog import (
     DEMO_DATE,
@@ -14,6 +20,7 @@ from procureflow.catalog import (
     list_stock,
     recommend,
     seed_catalog,
+    stock_and_quotes,
 )
 from procureflow.db import Database
 
@@ -65,6 +72,122 @@ def test_quotes_include_supplier_name_and_are_sorted(database):
             ("S-VOLUME", "量惠工业", Decimal("8.00")),
         ]
         assert list_quotes(session, "MISSING") == []
+
+
+def test_stock_and_quotes_shares_stock_rules_and_distinguishes_absent_items(database):
+    with database.transaction() as session:
+        seed_catalog(session)
+        stock, quotes = stock_and_quotes(session, "BRACKET", DEMO_DATE, 7)
+        assert stock == next(item for item in list_stock(session, DEMO_DATE, 7) if item.sku == "BRACKET")
+        assert quotes == list_quotes(session, "BRACKET")
+        stock, quotes = stock_and_quotes(session, "LABEL", DEMO_DATE, 7)
+        assert stock is not None and stock.shortage == 0 and quotes == []
+        assert stock_and_quotes(session, "MISSING", DEMO_DATE, 7) == (None, [])
+
+
+def test_stock_and_quotes_ignore_previously_loaded_orm_values(tmp_path):
+    database = Database(f"sqlite:///{(tmp_path / 'identity-map.sqlite3').as_posix()}")
+    try:
+        database.create_schema()
+        with database.transaction() as session:
+            seed_catalog(session)
+        with database.sessions() as reader:
+            stale_item = reader.get(InventoryItem, "BRACKET")
+            stale_quote = reader.get(SupplierQuote, ("BRACKET", "S-FAST"))
+            assert stale_item.on_hand == 25 and stale_quote.unit_price == Decimal("11.50")
+            with database.transaction() as writer:
+                writer.get(InventoryItem, "BRACKET").on_hand = 5
+                writer.get(SupplierQuote, ("BRACKET", "S-FAST")).unit_price = Decimal("20.00")
+            stock, quotes = stock_and_quotes(reader, "BRACKET", DEMO_DATE, 7)
+            assert stale_item.on_hand == 25 and stale_quote.unit_price == Decimal("11.50")
+            assert stock is not None and stock.on_hand == 5 and stock.shortage == 40
+            assert quotes[0].unit_price == Decimal("20.00")
+    finally:
+        database.close()
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "mysql-read-committed"])
+def test_stock_and_quotes_use_one_snapshot_during_concurrent_commit(tmp_path, backend):
+    if backend == "mysql-read-committed":
+        url = os.getenv("PROCUREFLOW_TEST_DB_URL")
+        if not url:
+            pytest.skip("PROCUREFLOW_TEST_DB_URL is not configured")
+        parsed = make_url(url)
+        if parsed.get_backend_name() != "mysql" or parsed.database != "procureflow_test":
+            pytest.fail("PROCUREFLOW_TEST_DB_URL must target a dedicated MySQL database named procureflow_test.")
+    else:
+        url = f"sqlite:///{(tmp_path / 'quote-snapshot.sqlite3').as_posix()}"
+    database = Database(url)
+    suffix = uuid4().hex.upper()
+    sku, supplier_id, shipment_id = f"I{suffix}", f"S{suffix}", f"T{suffix}"
+    writer_go, writer_done = Event(), Event()
+    created = False
+    try:
+        if backend == "sqlite":
+            with database.engine.connect() as connection:
+                connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+        database.create_schema()
+        with database.transaction() as session:
+            session.add_all([
+                InventoryItem(sku=sku, name="isolated", on_hand=5, reserved=0, daily_demand=2, safety_stock=0),
+                Supplier(supplier_id=supplier_id, name="supplier"),
+            ])
+            session.flush()
+            session.add_all([
+                InboundShipment(shipment_id=shipment_id, sku=sku, expected_on=DEMO_DATE, quantity=2),
+                SupplierQuote(sku=sku, supplier_id=supplier_id, unit_price=Decimal("10.00"), lead_days=1, min_order=1),
+            ])
+        created = True
+        observed_queries = []
+
+        def pause_after_select(connection, cursor, statement, parameters, context, executemany):
+            if connection.info.get("test_quote_snapshot") and "catalog_quotes" in statement.lower():
+                observed_queries.append(statement)
+                writer_go.set()
+                assert writer_done.wait(10), "Concurrent update did not commit while the result was being read"
+
+        def writer():
+            assert writer_go.wait(10), "Reader did not execute the snapshot query"
+            try:
+                with database.transaction() as session:
+                    session.execute(update(InventoryItem).where(InventoryItem.sku == sku).values(on_hand=1))
+                    session.execute(update(InboundShipment).where(InboundShipment.shipment_id == shipment_id).values(quantity=4))
+                    session.execute(update(SupplierQuote).where(SupplierQuote.sku == sku).values(unit_price=Decimal("20.00")))
+            finally:
+                writer_done.set()
+
+        event.listen(database.engine, "after_cursor_execute", pause_after_select)
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pending = pool.submit(writer)
+                with database.engine.connect() as connection:
+                    if backend == "mysql-read-committed":
+                        connection = connection.execution_options(isolation_level="READ COMMITTED")
+                    connection.info["test_quote_snapshot"] = True
+                    try:
+                        with Session(bind=connection) as session:
+                            stock, quotes = stock_and_quotes(session, sku, DEMO_DATE, 7)
+                    finally:
+                        connection.info.pop("test_quote_snapshot", None)
+                pending.result(timeout=10)
+        finally:
+            writer_go.set()
+            event.remove(database.engine, "after_cursor_execute", pause_after_select)
+        assert len(observed_queries) == 1
+        assert stock is not None and (stock.on_hand, stock.inbound_by_due, stock.shortage) == (5, 2, 7)
+        assert quotes[0].unit_price == Decimal("10.00")
+        with database.transaction() as session:
+            latest, latest_quotes = stock_and_quotes(session, sku, DEMO_DATE, 7)
+            assert latest is not None and (latest.on_hand, latest.inbound_by_due, latest.shortage) == (1, 4, 9)
+            assert latest_quotes[0].unit_price == Decimal("20.00")
+    finally:
+        if created and backend == "mysql-read-committed":
+            with database.transaction() as session:
+                session.execute(delete(SupplierQuote).where(SupplierQuote.sku == sku))
+                session.execute(delete(InboundShipment).where(InboundShipment.sku == sku))
+                session.execute(delete(InventoryItem).where(InventoryItem.sku == sku))
+                session.execute(delete(Supplier).where(Supplier.supplier_id == supplier_id))
+        database.close()
 
 
 def test_date_boundaries_for_inbound_and_supplier_eta(database):

@@ -8,12 +8,15 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy import delete, select
+from fastapi.testclient import TestClient
+from sqlalchemy import delete, event, select
 from sqlalchemy.engine import make_url
 
-from procureflow.agent import MAX_STEPS, AgentError, AgentRequest, AgentRun, AgentService, OpenAICompatibleModel
+from procureflow.agent import MAX_CATALOG_ROWS, MAX_STEPS, AgentError, AgentRequest, AgentRun, AgentService, OpenAICompatibleModel
+from procureflow.api import create_app
 from procureflow.catalog import DEMO_DATE, InventoryItem, Supplier, SupplierQuote, seed_catalog
 from procureflow.db import Database
+from procureflow.settings import Settings
 from procureflow.workflow import Actor, DraftStatus, Role, Workflow, WorkflowError
 
 
@@ -156,6 +159,15 @@ def test_application_rules_remain_distinct_from_untrusted_model_answer(workflow)
         assert not workflow.list_drafts(BUYER)
 
 
+def test_agent_requests_plain_text_without_markdown_tables(workflow):
+    with StubModel(workflow, [answer("支架缺口为 20 件。")]) as script:
+        script.run(prompt="请简要说明支架情况")
+        system_prompt = script.requests[0]["messages"][0]["content"]
+        assert "Respond concisely in plain text" in system_prompt
+        assert "Do not use Markdown tables or code blocks" in system_prompt
+        assert "displays structured quote comparisons separately" in system_prompt
+
+
 def test_stock_tool_does_not_present_shortage_as_supplier_availability(workflow):
     # GASKET has a shortage but no supplier that meets the planning window.
     # The stock tool must not imply the existence of a purchase proposal.
@@ -237,7 +249,31 @@ def test_quote_tool_compares_requested_quantity_independently_of_shortage(workfl
         assert quotes["S-FAST"]["shortage_comparison"]["shortage"] == 20
         assert "does not create or authorize a purchase" in output["comparison_semantics"]
         assert result.draft_id is None
+        snapshot = result.quote_comparisons[0]
+        assert snapshot.sku == "BRACKET" and snapshot.comparison_quantity == 30
+        assert snapshot.as_of == DEMO_DATE and snapshot.horizon_days == 7
+        assert snapshot.catalog_sku_found is True and snapshot.truncated is False
+        assert [item.model_dump(mode="json", exclude_none=True) for item in snapshot.items] == output["items"]
     assert workflow.list_drafts(BUYER) == []
+
+
+def test_agent_quote_tool_reads_inventory_inbound_and_quotes_in_one_statement(workflow):
+    statements = []
+
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        sql = statement.lower()
+        if sql.lstrip().startswith("select") and "catalog_" in sql:
+            statements.append(sql)
+
+    event.listen(workflow.database.engine, "before_cursor_execute", capture)
+    try:
+        with StubModel(workflow, [call("list_quotes", '{"sku":"BRACKET"}'), answer()]) as script:
+            result = script.run()
+    finally:
+        event.remove(workflow.database.engine, "before_cursor_execute", capture)
+    assert len(statements) == 1
+    assert all(table in statements[0] for table in ("catalog_inventory", "catalog_inbound", "catalog_quotes"))
+    assert result.quote_comparisons[0].items[0].shortage_comparison.shortage == 20
 
 
 @pytest.mark.parametrize("quantity", [0, -1, 1_000_001, 1.0, 1.5, "30", True, [], {}])
@@ -248,7 +284,76 @@ def test_quote_tool_rejects_invalid_comparison_quantities(workflow, quantity):
         assert tool_output(script, 1) == {"error": "Tool arguments did not match the schema."}
         assert result.trace.events[0].outcome == "rejected"
         assert result.draft_id is None
+        assert result.quote_comparisons == ()
     assert workflow.list_drafts(BUYER) == []
+
+
+@pytest.mark.parametrize(("sku", "found"), [("LABEL", True), ("MISSING", False)])
+def test_quote_snapshot_retains_empty_results_and_catalog_membership(workflow, sku, found):
+    with StubModel(workflow, [call("list_quotes", json.dumps({"sku": sku})), answer()]) as script:
+        result = script.run()
+        snapshot, = result.quote_comparisons
+        assert snapshot.sku == sku and snapshot.catalog_sku_found is found
+        assert snapshot.comparison_quantity is None and not snapshot.truncated and snapshot.items == ()
+
+
+def test_quote_snapshots_preserve_multiple_calls_and_do_not_persist_values(workflow):
+    request_id = uuid4()
+    with StubModel(workflow, [
+        call("list_quotes", '{"sku":"BRACKET","comparison_quantity":30}'),
+        call("list_quotes", '{"sku":"BRACKET","comparison_quantity":40}', call_id="second"),
+        answer("done"),
+    ]) as script:
+        result = script.run(request_id=request_id)
+        assert [snapshot.comparison_quantity for snapshot in result.quote_comparisons] == [30, 40]
+        assert all(snapshot.sku == "BRACKET" for snapshot in result.quote_comparisons)
+        assert result.quote_comparisons[0].items[0].requested_quantity_comparison.requested_quantity == 30
+        assert result.quote_comparisons[1].items[0].requested_quantity_comparison.requested_quantity == 40
+        replay = script.run(request_id=request_id)
+        assert replay.quote_comparisons == ()
+        assert len(script.requests) == 3
+    with workflow.database.transaction() as session:
+        runs = session.scalars(select(AgentRun).order_by(AgentRun.attempt_id)).all()
+        assert len(runs) == 2
+        persisted = json.dumps([run.trace for run in runs])
+        assert "BRACKET" not in persisted and "345.00" not in persisted
+
+
+def test_quote_snapshot_reports_truncation_and_bounds_rows(workflow):
+    with workflow.database.transaction() as session:
+        for index in range(MAX_CATALOG_ROWS + 1):
+            supplier_id = f"S-{index:03d}"
+            session.add(Supplier(supplier_id=supplier_id, name=f"Supplier {index}"))
+            session.add(SupplierQuote(sku="BRACKET", supplier_id=supplier_id, unit_price=Decimal("1.00"),
+                                      lead_days=2, min_order=1))
+    with StubModel(workflow, [call("list_quotes", '{"sku":"BRACKET"}'), answer()]) as script:
+        result = script.run()
+        snapshot, = result.quote_comparisons
+        assert snapshot.truncated is True and len(snapshot.items) == MAX_CATALOG_ROWS
+        assert result.trace.events[0].result_count == MAX_CATALOG_ROWS + 3
+
+
+def test_agent_api_exposes_calculated_quote_snapshots(workflow):
+    settings = Settings("sqlite://", "demo-buyer-token-123456", "demo-approver-token-1234",
+                        "http://127.0.0.1:1", "demo-erp-token-123456")
+    with StubModel(workflow, [
+        call("list_quotes", '{"sku":"BRACKET","comparison_quantity":30}'), answer("报价已查询")
+    ]) as script:
+        app = create_app(settings, database=workflow.database, erp=NeverSubmit(), model=script.model)
+        with TestClient(app) as client:
+            request = {"request_id": str(uuid4()), "prompt": "比较支架 30 件报价"}
+            assert client.post("/api/agent/run", json=request).status_code == 401
+            response = client.post("/api/agent/run", json=request,
+                                   headers={"Authorization": f"Bearer {settings.buyer_token}"})
+            assert response.status_code == 200
+            result = response.json()
+            snapshot, = result["quote_comparisons"]
+            assert snapshot["sku"] == "BRACKET" and snapshot["comparison_quantity"] == 30
+            assert snapshot["as_of"] == "2026-01-01" and snapshot["horizon_days"] == 7
+            quotes = {quote["supplier_id"]: quote for quote in snapshot["items"]}
+            assert quotes["S-FAST"]["requested_quantity_comparison"]["total_amount"] == "345.00"
+            assert quotes["S-VOLUME"]["requested_quantity_comparison"]["total_amount"] == "320.00"
+            assert not client.get("/api/drafts", headers={"Authorization": f"Bearer {settings.buyer_token}"}).json()
 
 
 @pytest.mark.parametrize("quantity", [1, 1_000_000])

@@ -13,15 +13,14 @@ const evidenceNotice = new Function(html.slice(begin, end) + "\nreturn evidenceN
 
 test("no successful business query is made visible", () => {
   for (const trace of [{events: []}, {events: [{tool: "list_stock", outcome: "rejected"}]}]) {
-    assert.match(evidenceNotice(trace), /没有成功查询业务数据.*无法提供可靠的业务数据/);
+    assert.match(evidenceNotice(trace), /未查询业务数据/);
   }
 });
 
 test("a successful query never certifies the model answer", () => {
   for (const tool of ["list_stock", "list_quotes", "list_recommendations"]) {
     const notice = evidenceNotice({events: [{tool, outcome: "ok"}]});
-    assert.match(notice, /已查询业务数据.*系统中的库存、报价和采购预览/);
-    assert.doesNotMatch(notice, /已核实|全部正确|均准确|所有结论|已验证/);
+    assert.equal(notice, "");
   }
 });
 
@@ -36,7 +35,9 @@ test("notice is outside the collapsed trace and refreshed with each answer", () 
   const answer = html.indexOf('id="agent-answer"');
   const trace = html.indexOf("<details><summary>查看工具调用记录");
   assert.ok(notice >= 0 && notice < answer && answer < trace);
-  assert.match(html, /element\("agent-evidence"\)\.textContent = evidenceNotice\(result\.trace\)/);
+  assert.match(html, /const evidence = evidenceNotice\(result\.trace\)/);
+  assert.match(html, /element\("agent-evidence"\)\.hidden = !evidence/);
+  assert.match(html, /<details id="system-rules">\s*<summary>查看业务规则<\/summary>/);
 });
 
 function snippet(start, end) {
@@ -63,6 +64,7 @@ function agentHarness() {
     asOf: "2026-01-01", horizon: 7, legacyAcknowledged: false,
     controls() {}, notice() {}, clearPreview() {}, optionalModel() {},
     evidenceNotice() { return ""; }, renderSystemRules() {}, renderTrace() {},
+    renderQuoteComparisons(value) { element("agent-quote-comparisons").textContent = value?.[0]?.sku || ""; },
     async loadDrafts() {}, async pendingRequest() { return "request-id"; },
     request() { return new Promise((resolve, reject) => waiting.push({resolve, reject})); },
   });
@@ -116,15 +118,31 @@ test("an old session cannot clear the new session's pending indicator", async ()
   await flush();
   const newRequest = h.waiting.shift();
   assert.equal(h.element("agent-progress").hidden, false);
-  oldRequest.resolve({...answer, answer: "旧会话"});
+  oldRequest.resolve({...answer, answer: "旧会话", quote_comparisons: [{sku: "OLD"}]});
   await flush();
   assert.equal(h.element("agent-progress").hidden, false);
   assert.equal(h.element("agent-form").attributes["aria-busy"], "true");
   assert.notEqual(h.element("agent-answer").textContent, "旧会话");
-  newRequest.resolve(answer);
+  assert.notEqual(h.element("agent-quote-comparisons").textContent, "OLD");
+  newRequest.resolve({...answer, quote_comparisons: [{sku: "BRACKET"}]});
   await flush();
   assert.equal(h.element("agent-progress").hidden, true);
   assert.equal(h.element("agent-answer").textContent, "库存结果");
+  assert.equal(h.element("agent-quote-comparisons").textContent, "BRACKET");
+});
+
+test("a new query and logout clear previous quote comparisons", async () => {
+  const h = agentHarness();
+  h.submit(); await flush();
+  h.waiting.shift().resolve({...answer, quote_comparisons: [{sku: "BRACKET"}]}); await flush();
+  assert.equal(h.element("agent-quote-comparisons").textContent, "BRACKET");
+  h.submit();
+  assert.equal(h.element("agent-quote-comparisons").textContent, "");
+  await flush();
+  h.waiting.shift().resolve({...answer, quote_comparisons: [{sku: "LABEL"}]}); await flush();
+  assert.equal(h.element("agent-quote-comparisons").textContent, "LABEL");
+  h.context.clearSession("已退出");
+  assert.equal(h.element("agent-quote-comparisons").textContent, "");
 });
 
 test("switching during request preparation does not start an old session query", async () => {

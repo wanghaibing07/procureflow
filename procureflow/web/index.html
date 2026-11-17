@@ -89,7 +89,13 @@
     .quote-table caption { text-align: left; font-weight: 650; padding-block: .3rem; }
     .quote-table tbody th { background: transparent; white-space: normal; overflow-wrap: anywhere; }
     .quote-details button { margin-top: .4rem; }
-    .agent-answer { margin-top: .9rem; padding: .8rem; border-left: 3px solid var(--accent); background: var(--paper); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .comparison-table { width: max-content; min-inline-size: 100%; }
+    .comparison-table th:first-child { min-inline-size: 12rem; max-inline-size: 18rem; }
+    .comparison-result { margin-block: .8rem; }
+    .comparison-result > p { margin-block: .3rem; }
+    #agent-result h4 { margin: .8rem 0 .2rem; font-size: 1rem; }
+    .comparison-result h5 { margin: 0; font-size: .95rem; }
+    .agent-answer { margin-top: .35rem; padding: .8rem; border-left: 3px solid var(--accent); background: var(--paper); white-space: pre-wrap; overflow-wrap: anywhere; }
     #agent-trace { overflow-wrap: anywhere; }
     details { margin-top: .65rem; }
     summary { min-height: 44px; padding: .52rem 0; color: var(--accent); }
@@ -201,15 +207,16 @@
           </form>
           <p id="agent-progress" class="muted" role="status" aria-live="polite" hidden></p>
           <div id="agent-result" hidden>
-            <h3>助手回答</h3>
+            <h3 id="agent-result-title" tabindex="-1">查询结果</h3>
             <p id="agent-evidence" role="status"></p>
+            <div id="agent-quote-comparisons"></div>
+            <h4>助手说明</h4>
             <p id="agent-answer" class="agent-answer" tabindex="-1"></p>
-            <section id="system-rules" aria-labelledby="system-rules-title">
-              <h3 id="system-rules-title">系统规则</h3>
-              <p class="muted">以下规则由服务端提供，不由模型决定。</p>
+            <details id="system-rules">
+              <summary>查看业务规则</summary>
               <ul id="system-rules-list"></ul>
               <p id="system-rules-unavailable" class="muted" hidden>当前服务未返回完整的系统规则，请查看采购预览和草案明细。</p>
-            </section>
+            </details>
             <details><summary>查看工具调用记录</summary><div id="agent-trace"></div></details>
           </div>
         </section>
@@ -525,8 +532,9 @@
       element("pending-recovery").hidden = true;
       element("pending-items").replaceChildren();
       element("legacy-recovery").hidden = true;
-      for (const id of ["stock", "quote-items", "recommendations", "drafts", "drafts-help", "agent-answer", "agent-evidence", "agent-trace", "system-rules-list"]) element(id).replaceChildren();
+      for (const id of ["stock", "quote-items", "recommendations", "drafts", "drafts-help", "agent-answer", "agent-evidence", "agent-quote-comparisons", "agent-trace", "system-rules-list"]) element(id).replaceChildren();
       element("quote-catalog").open = false;
+      element("system-rules").open = false;
       optionalModel();
       notice(message, error);
       element("token").focus();
@@ -851,9 +859,82 @@
       }
       const queried = trace.events.some(event => event.outcome === "ok" &&
         queryTools.includes(event.tool));
-      return queried
-        ? "已查询业务数据；请以系统中的库存、报价和采购预览为准。"
-        : "本次没有成功查询业务数据，助手无法提供可靠的业务数据；请查看系统中的库存和报价。";
+      return queried ? "" : "本次未查询业务数据，请查看库存和报价。";
+    }
+
+    function renderQuoteComparisons(comparisons) {
+      const container = element("agent-quote-comparisons");
+      container.replaceChildren();
+      if (!Array.isArray(comparisons) || !comparisons.length) return;
+      container.append(node("h4", "本次报价计算"));
+      const natural = value => Number.isSafeInteger(value) && value >= 0;
+      const decimal = value => typeof value === "string" && /^\d+(?:\.\d{1,2})?$/.test(value);
+      const comparisonOK = (value, quantity) => value && typeof value === "object" &&
+        natural(value[quantity]) && natural(value.order_quantity) && natural(value.extra_units) && decimal(value.total_amount);
+      for (const comparison of comparisons) {
+        const valid = comparison && typeof comparison === "object" && typeof comparison.sku === "string" &&
+          /^[A-Z0-9][A-Z0-9_-]{0,39}$/.test(comparison.sku) &&
+          (comparison.comparison_quantity === null || (Number.isSafeInteger(comparison.comparison_quantity) && comparison.comparison_quantity > 0 && comparison.comparison_quantity <= 1000000)) &&
+          typeof comparison.as_of === "string" && /^\d{4}-\d{2}-\d{2}$/.test(comparison.as_of) &&
+          Number.isSafeInteger(comparison.horizon_days) && comparison.horizon_days > 0 && comparison.horizon_days <= 30 &&
+          typeof comparison.catalog_sku_found === "boolean" && typeof comparison.truncated === "boolean" &&
+          Array.isArray(comparison.items) && comparison.items.length <= 100 &&
+          (comparison.catalog_sku_found || !comparison.items.length) &&
+          comparison.items.every(item => item && item.sku === comparison.sku &&
+            typeof item.supplier_id === "string" && typeof item.supplier_name === "string" && decimal(item.unit_price) &&
+            natural(item.lead_days) && natural(item.min_order) && item.min_order > 0 && typeof item.within_planning_window === "boolean" &&
+            (item.requested_quantity_comparison === null || comparisonOK(item.requested_quantity_comparison, "requested_quantity")) &&
+            (item.shortage_comparison === null || comparisonOK(item.shortage_comparison, "shortage")) &&
+            (comparison.comparison_quantity === null ? item.requested_quantity_comparison === null :
+              item.requested_quantity_comparison && item.requested_quantity_comparison.requested_quantity === comparison.comparison_quantity));
+        if (!valid) {
+          container.append(node("p", "本次报价结果格式不完整，请重新查询。", "muted"));
+          continue;
+        }
+        const section = node("section", undefined, "comparison-result");
+        section.append(node("h5", "本次查询：" + comparison.sku));
+        let context = "计划日期 " + comparison.as_of + " · 计划窗口 " + comparison.horizon_days + " 天";
+        if (comparison.comparison_quantity !== null) context += " · 查询比较数量 " + comparison.comparison_quantity + " 件";
+        section.append(node("p", context, "muted"));
+        if (!comparison.catalog_sku_found) section.append(node("p", "当前目录未找到此物料。"));
+        else if (!comparison.items.length) section.append(node("p", "当前目录没有报价。"));
+        if (comparison.truncated) section.append(node("p", "仅展示部分报价。", "muted"));
+        if (comparison.items.length) {
+          const requested = comparison.comparison_quantity !== null;
+          const shortage = comparison.items.some(item => item.shortage_comparison !== null);
+          const wrapper = node("div", undefined, "quote-scroll");
+          wrapper.tabIndex = 0;
+          wrapper.setAttribute("role", "region");
+          wrapper.setAttribute("aria-label", comparison.sku + "本次报价对照");
+          const table = node("table", undefined, "quote-table comparison-table");
+          table.append(node("caption", comparison.sku + "供应商报价"));
+          const thead = node("thead"), headings = node("tr");
+          const labels = ["供应商", "单价", "参考周期", "起订量"];
+          if (requested) labels.push("指定量订购数", "指定量多购", "指定量金额");
+          if (shortage) labels.push("缺口数量", "按缺口订购数", "按缺口多购", "按缺口金额");
+          for (const label of labels) {
+            const th = node("th", label); th.scope = "col"; headings.append(th);
+          }
+          thead.append(headings);
+          const tbody = node("tbody");
+          for (const item of comparison.items) {
+            const row = node("tr"), supplier = node("th", item.supplier_name + "（" + item.supplier_id + "）");
+            supplier.scope = "row";
+            row.append(supplier, node("td", amount(item.unit_price)), node("td", item.lead_days + " 天"), node("td", item.min_order + " 件"));
+            if (requested) {
+              const value = item.requested_quantity_comparison;
+              row.append(node("td", value.order_quantity + " 件"), node("td", value.extra_units + " 件"), node("td", amount(value.total_amount)));
+            }
+            if (shortage) {
+              const value = item.shortage_comparison;
+              for (const text of value ? [value.shortage + " 件", value.order_quantity + " 件", value.extra_units + " 件", amount(value.total_amount)] : ["—", "—", "—", "—"]) row.append(node("td", text));
+            }
+            tbody.append(row);
+          }
+          table.append(thead, tbody); wrapper.append(table); section.append(wrapper);
+        }
+        container.append(section);
+      }
     }
 
     function renderTrace(trace) {
@@ -1080,6 +1161,7 @@
       interact("助手正在查询…", async (session) => {
         agentProgress(session, true);
         element("agent-result").hidden = true;
+        element("agent-quote-comparisons").replaceChildren();
         try {
           const body = {prompt, as_of: asOf, horizon_days: horizon, allow_draft: false};
           const requestId = await pendingRequest("agent", session.identity.actor_id, body);
@@ -1087,14 +1169,17 @@
           const result = await request("/api/agent/run", session, {method: "POST", body: {...body, request_id: requestId}});
           if (active !== session) return;
           element("agent-answer").textContent = result.answer;
-          element("agent-evidence").textContent = evidenceNotice(result.trace);
+          const evidence = evidenceNotice(result.trace);
+          element("agent-evidence").textContent = evidence;
+          element("agent-evidence").hidden = !evidence;
+          renderQuoteComparisons(result.quote_comparisons);
           renderSystemRules(result.authoritative_rules);
           renderTrace(result.trace);
           element("agent-result").hidden = false;
           if (result.draft_id) await loadDrafts(session);
-          if (active === session) element("agent-answer").focus();
+          if (active === session) element("agent-result-title").focus();
           await pendingRequest("agent", session.identity.actor_id, body, requestId);
-          return "助手查询完成。创建草案前请在补货建议中确认物料。";
+          return "助手查询完成。";
         } finally {
           agentProgress(session, false);
         }
