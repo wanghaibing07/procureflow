@@ -1,0 +1,34 @@
+{
+  "run_url": "https://github.com/wanghaibing07/procureflow/actions/runs/44008673652",
+  "artifact_url": "https://github.com/wanghaibing07/procureflow/actions/runs/44008673652/artifacts/14295776698",
+  "tested_commit": "febe328b4ffb003a01c0a4d401051bb22c9b0cd6",
+  "workflow_result": "failure",
+  "environment": "GitHub-hosted Ubuntu runner; isolated Docker Compose app, MySQL, mock ERP and local model; automated Chromium; synthetic data",
+  "model": {
+    "name": "Qwen/Qwen2.5-0.5B-Instruct-GGUF q4_k_m",
+    "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+    "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+    "llama_cpp_release": "b12433",
+    "observation": "The browser's Agent request returned HTTP 504. This record does not establish whether the specific timeout occurred during connection, inference, or another stage; no completed response or successful tool call was recorded.",
+    "answer_quality": "not evaluated"
+  },
+  "tls_and_authentication": "The harness recorded successful authenticated HTTPS and rejection checks for missing authentication, wrong hostname and an untrusted CA.",
+  "browser_business_checks": {
+    "automated_actors": ["demo-buyer", "demo-approver"],
+    "pre_confirmation": "No draft was present after the model request or before the automated buyer confirmed the preview.",
+    "preview": "The automated browser selected BRACKET and checked server preview values: S-FAST, quantity 20, unit price 11.50, total 230.00.",
+    "draft_id": "7cc340e2-8e22-4c76-811c-ef7698e54dee",
+    "outcome": "Browser and application API recorded draft creation, approval and mock ERP submission, with created/approved/submitted events and a visible receipt.",
+    "erp_reference": "MOCK-616C460AA7D74032A0935720FB6EEFCE",
+    "retries": "The API returned the same draft for a repeated confirmation and the same receipt for a repeated ERP submission."
+  },
+  "storage_crosscheck": "Not completed: the independent MySQL query failed with error 1064 at the unquoted lines identifier; the subsequent ERP storage comparison was not reached.",
+  "restart_verification": "Not reached after the storage query failed.",
+  "cleanup": "The harness reported removal of Compose containers, volumes, networks and project image tags. This does not independently establish removal of every underlying image or other runner resource.",
+  "limitations": [
+    "Overall experiment failed: model query returned 504 and independent storage/restart checks did not complete.",
+    "This was hosted synthetic automation, not the VMware experiment, Magpie, independent human UAT, or model-answer accuracy validation.",
+    "Browser/API receipt and audit observations are not an independent check of MySQL and mock ERP storage.",
+    "This is one run and does not establish a production success rate or cost."
+  ]
+}

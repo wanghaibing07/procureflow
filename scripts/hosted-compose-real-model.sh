@@ -72,6 +72,7 @@ data={'source_commit':sys.argv[2], 'environment':'GitHub-hosted Ubuntu; Docker C
  'model_sha256':'74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db',
  'llama_cpp_release':'b12433',
  'llama_archive_sha256':'209023cfc6061720802c103e5b7ba9f99e9304a3bdcd035fc50c3fba064cb79f',
+ 'model_timeout_seconds':120,
  'limits':'No independent human UAT; one synthetic browser scenario; correct execution is not model answer accuracy.'}
 with open(sys.argv[1],'w',encoding='utf8') as f: json.dump(data,f,indent=2)
 PY
@@ -109,7 +110,7 @@ names=('MYSQL_PASSWORD','PROCUREFLOW_BUYER_TOKEN','PROCUREFLOW_APPROVER_TOKEN','
 values={name:secrets.token_hex(24) for name in names}
 with open(sys.argv[1],'x',encoding='ascii') as f:
  for name,value in values.items(): f.write(f'{name}={value}\n')
- f.write('PROCUREFLOW_MODEL_URL=https://model:9443/v1\nPROCUREFLOW_MODEL_NAME=qwen2.5-0.5b-instruct-q4_k_m\n')
+ f.write('PROCUREFLOW_MODEL_URL=https://model:9443/v1\nPROCUREFLOW_MODEL_NAME=qwen2.5-0.5b-instruct-q4_k_m\nPROCUREFLOW_MODEL_TIMEOUT_SECONDS=120\n')
 with open(sys.argv[2],'x',encoding='ascii') as f: f.write(values['PROCUREFLOW_MODEL_API_KEY'])
 PY
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=ProcureFlow synthetic CA' -addext 'basicConstraints=critical,CA:TRUE' -keyout "$private/tls/ca.key" -out "$private/tls/ca.pem" > "$private/cert.log" 2>&1
@@ -205,6 +206,117 @@ browser_rc=0
 node tests/hosted_browser_acceptance.mjs > "$private/browser.log" 2>&1 || browser_rc=$?
 if (( browser_rc == 0 )); then event "$phase" passed; else event "$phase" failed; fi
 
+phase=agent_run_diagnostics
+agent_trace_rc=0
+# Query only trace metadata from the synthetic database. Project a strict
+# allowlist before anything leaves the container; never retrieve prompts,
+# answers, headers, model logs or credential values. The browser's request ID
+# binds this observation to the exact request rather than another attempt.
+request_id=''
+if request_id=$(python3 - "$PF_EVIDENCE_DIR/browser-acceptance.json" 2>/dev/null <<'PY'
+import json,sys
+from uuid import UUID
+data=json.load(open(sys.argv[1],encoding='utf8'))
+value=data.get('model',{}).get('request_id')
+if not isinstance(value,str) or str(UUID(value)) != value: raise ValueError('invalid request id')
+print(value)
+PY
+); then
+docker compose exec -T app /app/.venv/bin/python - "$request_id" > "$private/agent-runs.json" 2>/dev/null <<'PY' || agent_trace_rc=$?
+import json,os,sys
+from uuid import UUID
+from sqlalchemy import create_engine,text
+request_id=sys.argv[1]
+if str(UUID(request_id)) != request_id: raise ValueError('invalid request id')
+allowed_tools={'list_stock','list_quotes','list_recommendations'}
+def number(value):
+ return value if type(value) is int and 0 <= value <= 2147483647 else None
+def safe_event(event):
+ if not isinstance(event,dict) or event.get('tool') not in allowed_tools: return None
+ return {'step':number(event.get('step')),'tool':event['tool'],
+         'outcome':event.get('outcome') if event.get('outcome') in ('ok','rejected') else 'unknown',
+         'elapsed_ms':number(event.get('elapsed_ms')),'result_count':number(event.get('result_count'))}
+engine=create_engine(os.environ['PROCUREFLOW_DATABASE_URL'])
+with engine.connect() as connection:
+ rows=connection.execute(text('SELECT status,trace FROM agent_runs WHERE request_id = :request_id ORDER BY attempt_id LIMIT 2'),
+                         {'request_id':request_id}).all()
+if len(rows) != 1: raise ValueError('expected exactly one matching run')
+runs=[]
+for status,trace in rows:
+ if isinstance(trace,str): trace=json.loads(trace)
+ if not isinstance(trace,dict): raise ValueError('invalid trace')
+ raw_events=trace.get('events',[])
+ if not isinstance(raw_events,list): raise ValueError('invalid events')
+ events=[item for item in (safe_event(e) for e in raw_events[:100]) if item is not None]
+ runs.append({'status':status if status in ('completed','failed','replayed') else 'unknown',
+              'model_calls':number(trace.get('model_calls')),'elapsed_ms':number(trace.get('elapsed_ms')),
+              'input_tokens':number(trace.get('input_tokens')),'output_tokens':number(trace.get('output_tokens')),
+              'events':events})
+print(json.dumps({'request_id':request_id,'runs':runs},separators=(',',':')))
+PY
+else
+  agent_trace_rc=1
+fi
+if (( agent_trace_rc == 0 )) && python3 -m json.tool "$private/agent-runs.json" > /dev/null; then
+  cp "$private/agent-runs.json" "$public/agent-runs.json"
+  event "$phase" collected
+else
+  agent_trace_rc=1
+  event "$phase" failed_or_unavailable
+fi
+
+phase=agent_browser_crosscheck
+agent_compare_rc=1
+if (( agent_trace_rc == 0 )); then
+  comparison=''
+  if comparison=$(python3 - "$PF_EVIDENCE_DIR/browser-acceptance.json" "$private/agent-runs.json" 2>/dev/null <<'PY'
+import json,sys
+browser=json.load(open(sys.argv[1],encoding='utf8'))
+diagnostic=json.load(open(sys.argv[2],encoding='utf8'))
+if browser.get('checks',{}).get('model_query_called_read_only_tool') is not True:
+ print('model_not_successful')
+else:
+ model=browser.get('model',{})
+ runs=diagnostic.get('runs',[])
+ if len(runs)!=1 or diagnostic.get('request_id')!=model.get('request_id'): raise ValueError('run mismatch')
+ run=runs[0]
+ if model.get('http_status')!=200 or model.get('response_request_id_matches') is not True or run.get('status')!='completed':
+  raise ValueError('model status mismatch')
+ calls=model.get('model_calls')
+ if type(calls) is not int or calls < 1 or type(run.get('model_calls')) is not int or calls!=run['model_calls']:
+  raise ValueError('model call count mismatch')
+ fields=('step','tool','outcome','elapsed_ms','result_count')
+ allowed={'list_stock','list_quotes','list_recommendations'}
+ def successful(event):
+  if not isinstance(event,dict) or event.get('tool') not in allowed or event.get('outcome')!='ok': return None
+  if any(field not in event for field in fields): return None
+  if type(event['step']) is not int or type(event['elapsed_ms']) is not int: return None
+  if event['result_count'] is not None and type(event['result_count']) is not int: return None
+  return tuple(event[field] for field in fields)
+ browser_events=model.get('tool_events',[])
+ database_events=run.get('events',[])
+ if not isinstance(browser_events,list) or not isinstance(database_events,list): raise ValueError('invalid events')
+ b={item for item in (successful(e) for e in browser_events) if item is not None}
+ d={item for item in (successful(e) for e in database_events) if item is not None}
+ if not b.intersection(d): raise ValueError('no matching successful tool event')
+ print('passed')
+PY
+  ); then
+    if [[ "$comparison" == passed ]]; then
+      agent_compare_rc=0
+      event "$phase" passed
+    elif [[ "$comparison" == model_not_successful ]]; then
+      event "$phase" not_applicable_model_not_successful
+    else
+      event "$phase" failed_or_unavailable
+    fi
+  else
+    event "$phase" failed_or_unavailable
+  fi
+else
+  event "$phase" failed_or_unavailable
+fi
+
 phase=browser_evidence
 # Do not publish arbitrary browser logs or screenshots. Accept only JSON without
 # any generated token, authorization header or key material.
@@ -238,7 +350,8 @@ import json,os,sys
 from sqlalchemy import create_engine,text
 e=create_engine(os.environ['PROCUREFLOW_DATABASE_URL'])
 with e.connect() as c:
- rows=c.execute(text('SELECT draft_id,buyer_id,status,lines,total,erp_reference FROM purchase_drafts')).all()
+ # MySQL reserves LINES; this cross-check runs against the Compose MySQL service.
+ rows=c.execute(text('SELECT draft_id,buyer_id,status,`lines`,total,erp_reference FROM purchase_drafts')).all()
  events=c.execute(text('SELECT event,actor_id FROM purchase_draft_events WHERE draft_id=:id ORDER BY event_id'),{'id':sys.argv[1]}).all()
 assert len(rows)==1
 row=rows[0]; assert row.draft_id==sys.argv[1] and row.buyer_id=='demo-buyer' and row.status=='submitted'
@@ -283,5 +396,5 @@ for _ in range(60):
 else: raise SystemExit('Draft not recovered after application restart')
 PY
 event "$phase" passed
-if (( browser_rc != 0 )); then phase=browser_model_or_business_checks; exit 1; fi
+if (( browser_rc != 0 || agent_trace_rc != 0 || agent_compare_rc != 0 )); then phase=browser_model_or_business_checks; exit 1; fi
 event experiment completed

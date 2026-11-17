@@ -74,18 +74,29 @@ try {
   // answered incorrectly. A trace event supports tool execution, not semantic accuracy.
   evidence.stage = 'model_query';
   let modelOk = false;
+  const modelUiStarted = performance.now();
   try {
     await page.locator('#prompt').fill('查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。');
     const [modelResponse] = await Promise.all([
-      page.waitForResponse(isResponse('/api/agent/run'), { timeout: 150000 }),
+      page.waitForResponse(isResponse('/api/agent/run'), { timeout: 300000 }),
       page.locator('#agent-form button[type="submit"]').click(),
     ]);
-    evidence.model = { http_status: modelResponse.status() };
+    evidence.model = { http_status: modelResponse.status(),
+      ui_to_response_elapsed_ms: Math.round(performance.now() - modelUiStarted) };
+    // The ID comes from the request actually associated with this response,
+    // including an HTTP 504; never substitute a response field or fabricate one.
+    const requestId = modelResponse.request().postDataJSON()?.request_id;
+    if (typeof requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+      evidence.model.observation = 'invalid_or_missing_request_id';
+      throw new Error('invalid_agent_request_id');
+    }
+    evidence.model.request_id = requestId.toLowerCase();
     if (modelResponse.status() === 200) {
       const result = await modelResponse.json();
       const events = Array.isArray(result.trace?.events) ? result.trace.events : [];
       evidence.model = {
-        http_status: 200, request_id: result.request_id, model: safeAnswer(result.trace?.model),
+        ...evidence.model, response_request_id_matches: typeof result.request_id === 'string' &&
+          result.request_id.toLowerCase() === evidence.model.request_id, model: safeAnswer(result.trace?.model),
         model_calls: result.trace?.model_calls, elapsed_ms: result.trace?.elapsed_ms,
         input_tokens: result.trace?.input_tokens, output_tokens: result.trace?.output_tokens,
         prompt: '查询全部物料当前库存和缺口，请先使用库存查询工具，再回答。',
@@ -96,11 +107,19 @@ try {
         draft_id_is_null: result.draft_id === null,
       };
       await page.locator('#agent-result').waitFor({ state: 'visible', timeout: 20000 });
-      modelOk = Number.isInteger(result.trace?.model_calls) && result.trace.model_calls > 0 && result.draft_id === null &&
+      modelOk = evidence.model.response_request_id_matches && Number.isInteger(result.trace?.model_calls) && result.trace.model_calls > 0 && result.draft_id === null &&
         events.some(e => ['list_stock', 'list_quotes', 'list_recommendations'].includes(e.tool) && e.outcome === 'ok');
+    } else {
+      evidence.model.observation = modelResponse.status() === 504
+        ? 'http_504; specific connection or inference cause unknown'
+        : 'http_error; specific cause unknown';
+      await page.waitForFunction(() => document.querySelector('#notice')?.classList.contains('error'), null, { timeout: 20000 });
     }
   } catch {
-    evidence.model = { ...(evidence.model || {}), observation: 'query_failed_or_timed_out' };
+    evidence.model = { ...(evidence.model || {}),
+      observation: evidence.model?.observation || 'browser_observation_failed_or_timed_out; cause unknown' };
+  } finally {
+    evidence.model = { ...(evidence.model || {}), ui_elapsed_ms: Math.round(performance.now() - modelUiStarted) };
   }
   evidence.checks.model_query_called_read_only_tool = modelOk;
   await writeEvidence();
@@ -182,7 +201,8 @@ try {
     events: ['created', 'approved', 'submitted'] };
   evidence.stage = 'complete';
   evidence.status = modelOk ? 'pass' : 'failed';
-  if (!modelOk) evidence.failure = 'model_query_missing_successful_read_only_tool';
+  if (!modelOk) evidence.failure = evidence.model?.http_status === 504
+    ? 'model_query_http_504' : 'model_query_missing_successful_read_only_tool';
 } catch (error) {
   evidence.status = 'failed';
   // Only locally defined check names are exported, never exception messages from

@@ -66,7 +66,10 @@ def create_app(
         erp_client = erp or HTTPERPClient(config.erp_url, config.erp_token)
         model_client = model
         if model_client is None and config.model_url:
-            model_client = OpenAICompatibleModel(config.model_url, config.model_api_key, config.model_name)
+            model_client = OpenAICompatibleModel(
+                config.model_url, config.model_api_key, config.model_name,
+                timeout_seconds=config.model_timeout_seconds,
+            )
         try:
             db.create_schema()
             if config.load_demo:

@@ -15,12 +15,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .catalog import InventoryItem, list_quotes, list_stock, recommend
 from .contracts import Value
 from .db import Base, Database
+from .settings import DEFAULT_MODEL_TIMEOUT_SECONDS, validate_model_timeout
 from .workflow import Actor, Role, Workflow, WorkflowError
 
 
 MAX_STEPS = 6
 MAX_CATALOG_ROWS = 100
-REQUEST_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 
 
 class AgentError(Exception):
@@ -154,7 +154,9 @@ def _token_count(usage: object, key: str) -> int | None:
 
 
 class OpenAICompatibleModel:
-    def __init__(self, base_url: str, api_key: str, model: str, *, client: httpx.Client | None = None) -> None:
+    def __init__(self, base_url: str, api_key: str, model: str, *, client: httpx.Client | None = None,
+                 timeout_seconds: int = DEFAULT_MODEL_TIMEOUT_SECONDS) -> None:
+        validate_model_timeout(timeout_seconds)
         url = httpx.URL(base_url)
         local = url.host in {"localhost", "127.0.0.1", "::1"}
         if (
@@ -167,6 +169,7 @@ class OpenAICompatibleModel:
         self.model = model.strip()
         self._url = f"{str(url).rstrip('/')}/chat/completions"
         self._headers = {"Authorization": f"Bearer {api_key}"}
+        self._timeout = httpx.Timeout(float(timeout_seconds), connect=5.0)
         self._owns_client = client is None
         self._client = client if client is not None else httpx.Client(trust_env=False)
 
@@ -188,7 +191,7 @@ class OpenAICompatibleModel:
                     "max_completion_tokens": 1500,
                     "stream": False,
                 },
-                timeout=REQUEST_TIMEOUT,
+                timeout=self._timeout,
                 follow_redirects=False,
             )
             response.raise_for_status()

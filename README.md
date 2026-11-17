@@ -38,6 +38,8 @@
 
 在同一 VMware Compose 环境中，还用真实本地 Qwen2.5 0.5B 模型进行了[一次 API 实验](evidence/compose-real-local-model.json)，对应源码提交 `33b64a0dc5c901975f0fdfaf45540ef6ebc5e47e`：应用通过 HTTPS 访问模型，检查了认证及错误证书拒绝；随后分别运行模型库存查询和脚本化采购审批、模拟 ERP 回执。模型调用了库存工具，却错误报告标签缺货并编造了额外物料，**回答未通过业务核对**。本次没有操作浏览器，也不是独立人工 UAT；Compose 容器和独立 Docker 守护进程已停止并核验，但删除临时目录失败。后续只读检查时目录仍在，9 个命名空间中出现相同签名的挂载记录，不能据此判断独立挂载数；未发现相关进程或已检查路径上的已知密钥文件，其他内容未全面检查，未做进一步删除，也无法认定临时目录已完全清理。Docker 静态包仍只有本地哈希，没有取得发布方独立校验值。
 
+另一次 [GitHub 托管 Compose 与自动化浏览器实验](evidence/hosted-compose-real-model-initial.json)对应提交 `febe328b4ffb003a01c0a4d401051bb22c9b0cd6`，使用合成数据和本地 Qwen2.5 0.5B：模型 HTTPS 与认证检查通过，但浏览器发起的 Agent 请求返回 **504**，具体是连接、推理还是其他阶段超时未知，没有取得可核对的成功工具调用。浏览器随后以自动化角色完成预览、确认、审批、模拟 ERP 回执及应用 API 重试检查；独立 MySQL 查询因 SQL 语法错误失败，ERP 存储交叉核对和服务重启验证没有执行。清理步骤报告 Compose 容器、卷、网络及项目镜像标签已移除。**整体实验未通过**，不代表模型查询成功或真人 UAT。
+
 ```bash
 python scripts/demo_env.py
 docker compose up --build
@@ -70,6 +72,8 @@ uv run --locked --env-file .env uvicorn procureflow.api:app --port 8000
 ## 可选模型
 
 要启用自然语言输入，在本地 `.env` 增加 `PROCUREFLOW_MODEL_URL`、`PROCUREFLOW_MODEL_API_KEY`、`PROCUREFLOW_MODEL_NAME`，重启应用。URL 填模型服务的 Chat Completions 基础地址（如以 `/v1` 结尾），模型必须支持函数工具调用。工具仅处理本演示的合成数据。
+
+单次模型请求默认超时为 20 秒；较慢的模型可在 `.env` 中设置 `PROCUREFLOW_MODEL_TIMEOUT_SECONDS` 为 1–180 的整数，例如 `90`，再重启应用。连接超时仍为 5 秒；这是每次 HTTP 请求的超时配置，并非整次多轮工具调用的总时限。超时会返回 504，增加时间不保证模型调用成功或回答正确。未配置模型时忽略此选项，不影响手工采购。
 
 使用 Compose 时，模型地址必须从应用容器内可达；`127.0.0.1` 指向容器自身，不能直接访问宿主机上的 Magpie。非回环地址必须使用 HTTPS，并保持证书验证；若模型服务只监听宿主机回环地址，需先确认适合当前环境的受控连接方式及证书信任，再配置容器可达的地址。不要将密钥放进仓库或演示记录。旧版 Compose 与宿主机 Magpie 的组合未验收。
 
