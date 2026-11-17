@@ -8,6 +8,8 @@
 
 **关键取舍：**模型负责理解请求、查询和解释，不直接创建、审批或提交草案。采购员选择物料并确认服务端预览后才建单；数量、金额和供应商排序由确定性规则计算，界面展示数据库中的草案明细。模拟 ERP 用草案编号去重，避免请求超时重试时重复受理。
 
+报价查询也能比较指定数量：例如询问「采购 30 件安装支架，哪家总金额更低？」，系统会计入各供应商的起订量，再计算金额；这个假设数量与系统按库存缺口生成的采购建议分别展示。
+
 **实际排障：**一次审查发现建单成功但响应丢失后，如果库存已变化，同一个请求重试可能拿不到原草案。现在按采购员、幂等键和原始请求保存意图，再根据意图返回原单；SQLite 与 MySQL 的并发重试都有测试。接入真实模型时还发现服务一次返回多个工具调用，已增加受限顺序处理和数量上限。首次容器部署还发现严格 `umask 077` 下源码对非 root 用户不可读，已在镜像构建时规范源码权限并重验。
 
 ## 运行
@@ -31,7 +33,7 @@ uv run --locked --env-file .env uvicorn procureflow.api:app --port 8000
 
 ## 运行与测试
 
-项目已验证角色权限、采购预览与确认、草案重试、审批和模拟 ERP 回执；模型、浏览器、MySQL 和模拟 ERP 的同环境运行结果见[联合运行记录](evidence/hosted-compose-real-model-browser-crosscheck.json)。[模型场景记录](evidence/magpie-confirmation-evaluation-v5.json)保存了库存、报价和边界请求的回答，部分回答存在错误，使用时应以服务端数据为准。其他实验结果与历史版本见[证据目录](evidence/)，每条记录包含对应的运行范围；[GitHub Actions](https://github.com/wanghaibing07/procureflow/actions/workflows/test.yml)可按提交查看测试结果。
+项目已验证角色权限、采购预览与确认、草案重试、审批和模拟 ERP 回执；模型、浏览器、MySQL 和模拟 ERP 的同环境运行结果见[联合运行记录](evidence/hosted-compose-real-model-browser-crosscheck.json)。[模型场景记录](evidence/magpie-confirmation-evaluation-v6.json)和[指定数量报价对照](evidence/magpie-quote-comparison-v1.json)保存了实际回答；部分回答存在错误，使用时应以服务端数据为准。其他实验结果与历史版本见[证据目录](evidence/)，每条记录包含对应的运行范围；[GitHub Actions](https://github.com/wanghaibing07/procureflow/actions/workflows/test.yml)可按提交查看测试结果。
 
 ## 演示路径
 

@@ -2,7 +2,7 @@
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import ipaddress
 import json
@@ -63,6 +63,7 @@ NEGATIVE_CASES = (
 
 DATASET_DATE = "2026-01-01"
 DATASET_HORIZON = 7
+DATASET_DUE = (date.fromisoformat(DATASET_DATE) + timedelta(days=DATASET_HORIZON)).isoformat()
 
 # Fixed acceptance contract, deliberately maintained independently of the
 # service implementation so a missing or changed rule is not silently accepted.
@@ -119,23 +120,29 @@ def call_api(client: httpx.Client, base: str, method: str, path: str, token: str
     return response_json(client.request(method, base + path, headers={"Authorization": f"Bearer {token}"}, **kwargs))
 
 
+def checked_identity(client: httpx.Client, base: str, token: str, role: str) -> str:
+    identity = call_api(client, base, "GET", "/api/me", token)
+    if (not isinstance(identity, dict) or identity.get("role") != role
+            or not isinstance(identity.get("actor_id"), str) or not identity["actor_id"].strip()):
+        raise ValueError("A demo token does not match a valid expected identity")
+    return identity["actor_id"]
+
+
 def preflight(client: httpx.Client, base: str, tokens: dict[str, str]) -> None:
     health = response_json(client.get(base + "/healthz"))
     if not isinstance(health, dict) or health.get("model_configured") is not True:
         raise ValueError("The demo instance has no configured model")
     for role, token in tokens.items():
-        identity = call_api(client, base, "GET", "/api/me", token)
-        if not isinstance(identity, dict) or identity.get("role") != role:
-            raise ValueError("A demo token does not match the expected role")
+        checked_identity(client, base, token, role)
     # The model cases make claims about these inputs, not merely about the final
     # recommendation. A stale persistent database can otherwise yield a valid
     # recommendation while changing the numbers the answers are judged against.
     stock = call_api(client, base, "GET", "/api/stock?as_of=2026-01-01&horizon_days=7", tokens["buyer"])
-    stock_fields = ("sku", "name", "on_hand", "reserved", "inbound_by_due", "forecast_demand", "safety_stock", "shortage")
+    stock_fields = ("sku", "name", "on_hand", "reserved", "inbound_by_due", "forecast_demand", "safety_stock", "shortage", "due_date")
     expected_stock = {
-        ("BRACKET", "安装支架", 25, 8, 15, 42, 10, 20),
-        ("GASKET", "密封垫", 5, 2, 0, 21, 5, 23),
-        ("LABEL", "包装标签", 120, 20, 0, 28, 20, 0),
+        ("BRACKET", "安装支架", 25, 8, 15, 42, 10, 20, DATASET_DUE),
+        ("GASKET", "密封垫", 5, 2, 0, 21, 5, 23, DATASET_DUE),
+        ("LABEL", "包装标签", 120, 20, 0, 28, 20, 0, DATASET_DUE),
     }
     if (not isinstance(stock, list) or len(stock) != len(expected_stock)
             or any(not isinstance(row, dict) for row in stock)
@@ -254,6 +261,7 @@ def evaluate_one(client: httpx.Client, base: str, tokens: dict[str, str], case: 
 
         if case.expect_draft and not result["checks"]:
             # Select a fixed SKU and check the server preview before confirmation.
+            buyer_id = checked_identity(client, base, token, "buyer")
             selection = {"skus": ["BRACKET"], "as_of": DATASET_DATE, "horizon_days": DATASET_HORIZON}
             preview = call_api(client, base, "POST", "/api/drafts/preview", token, json=selection)
             if not isinstance(preview, dict) or preview.get("skus") != ["BRACKET"]:
@@ -262,12 +270,19 @@ def evaluate_one(client: httpx.Client, base: str, tokens: dict[str, str], case: 
             # historical name. Never persist or publish it in evaluation output.
             result["preview"] = {key: value for key, value in preview.items() if key != "preview_hash"}
             lines = preview.get("lines")
-            if (not isinstance(lines, list) or len(lines) != 1 or lines[0].get("sku") != "BRACKET"
-                    or lines[0].get("quantity") != 20 or lines[0].get("supplier_id") != "S-FAST"
+            confirmation_token = preview.get("preview_hash")
+            if (preview.get("as_of") != DATASET_DATE or type(preview.get("horizon_days")) is not int
+                    or preview["horizon_days"] != DATASET_HORIZON
+                    or not isinstance(confirmation_token, str) or len(confirmation_token) != 64
+                    or any(char not in "0123456789abcdef" for char in confirmation_token)
+                    or not isinstance(lines, list) or len(lines) != 1 or not isinstance(lines[0], dict)
+                    or lines[0].get("sku") != "BRACKET" or lines[0].get("due_date") != DATASET_DUE
+                    or type(lines[0].get("quantity")) is not int or lines[0].get("quantity") != 20
+                    or lines[0].get("supplier_id") != "S-FAST"
                     or str(lines[0].get("unit_price")) != "11.50" or str(preview.get("total")) != "230.00"):
                 result["checks"].append("Purchase preview differs from the expected BRACKET recommendation.")
             else:
-                confirmation = {**selection, "preview_hash": preview["preview_hash"]}
+                confirmation = {**selection, "preview_hash": confirmation_token}
                 headers = {
                     "Authorization": f"Bearer {token}", "Idempotency-Key": request_id,
                 }
@@ -282,18 +297,20 @@ def evaluate_one(client: httpx.Client, base: str, tokens: dict[str, str], case: 
                 result["draft"] = draft
                 result["confirmation"] = "BRACKET preview confirmation submitted"
                 if (not isinstance(draft, dict) or draft.get("status") != "draft"
+                        or draft.get("draft_id") != safe_id or draft.get("buyer_id") != buyer_id
                         or draft.get("lines") != preview.get("lines")
                         or str(draft.get("total")) != str(preview.get("total"))):
                     result["checks"].append("Persisted draft differs from the confirmed preview.")
-                replay = client.post(base + "/api/drafts", headers=headers, json=confirmation)
-                if replay.status_code != 200 or replay.json().get("draft_id") != safe_id:
-                    result["checks"].append("Retry with the same confirmation key did not return the original draft.")
-                other_headers = {**headers, "Idempotency-Key": str(uuid4())}
-                duplicate = client.post(base + "/api/drafts", headers=other_headers, json=confirmation)
-                if duplicate.status_code != 409:
-                    result["checks"].append("A consumed preview was not rejected with a different confirmation key.")
-                if draft_ids(client, base, token) != final_ids:
-                    result["checks"].append("Confirmation retry or consumed preview reuse changed the draft list.")
+                if not result["checks"]:
+                    replay = client.post(base + "/api/drafts", headers=headers, json=confirmation)
+                    if replay.status_code != 200 or replay.json().get("draft_id") != safe_id:
+                        result["checks"].append("Retry with the same confirmation key did not return the original draft.")
+                    other_headers = {**headers, "Idempotency-Key": str(uuid4())}
+                    duplicate = client.post(base + "/api/drafts", headers=other_headers, json=confirmation)
+                    if duplicate.status_code != 409:
+                        result["checks"].append("A consumed preview was not rejected with a different confirmation key.")
+                    if draft_ids(client, base, token) != final_ids:
+                        result["checks"].append("Confirmation retry or consumed preview reuse changed the draft list.")
         if result["checks"]:
             result["status"] = "failed"
     except (httpx.HTTPError, ValueError, KeyError, TypeError):

@@ -42,6 +42,10 @@ class FakeApplication:
         self.answer = f"synthetic answer {BUYER}"
         self.changed_quote = False
         self.changed_stock = False
+        self.bad_stock_due = False
+        self.bad_identity = False
+        self.preview_override = {}
+        self.persisted_override = {}
 
     def response(self, request):
         self.calls.append((request.method, request.url.path))
@@ -49,7 +53,7 @@ class FakeApplication:
         if request.url.path == "/healthz":
             return httpx.Response(200, json={"model_configured": True})
         if request.url.path == "/api/me":
-            return httpx.Response(200, json={"role": role})
+            return httpx.Response(200, json={"role": role, "actor_id": "" if self.bad_identity else f"demo-{role}"})
         if request.url.path == "/api/stock":
             fields = ("sku", "name", "on_hand", "reserved", "inbound_by_due", "forecast_demand", "safety_stock", "shortage")
             data = [
@@ -58,8 +62,12 @@ class FakeApplication:
                 ("LABEL", "包装标签", 120, 20, 0, 28, 20, 0),
             ]
             rows = [dict(zip(fields, row)) for row in data]
+            for row in rows:
+                row["due_date"] = "2026-01-08"
             if self.changed_stock:
                 rows[0]["reserved"] = 7
+            if self.bad_stock_due:
+                rows[0]["due_date"] = "2026-01-09"
             return httpx.Response(200, json=rows)
         if request.url.path.startswith("/api/quotes/"):
             sku = request.url.path.rsplit("/", 1)[-1]
@@ -84,9 +92,15 @@ class FakeApplication:
             assert payload == {"skus": ["BRACKET"], "as_of": "2026-01-01", "horizon_days": 7}
             preview_token = uuid4().hex + uuid4().hex
             self.previews[preview_token] = None
-            return httpx.Response(200, json={**payload, "preview_hash": preview_token,
+            preview = {**payload, "preview_hash": preview_token,
                 "lines": [{"sku": "BRACKET", "quantity": 20, "unit_price": "99.00" if self.bad_preview else "11.50",
-                           "supplier_id": "S-FAST", "due_date": "2026-01-08"}], "total": "230.00"})
+                           "supplier_id": "S-FAST", "due_date": "2026-01-08"}], "total": "230.00"}
+            for key, value in self.preview_override.items():
+                if key == "due_date":
+                    preview["lines"][0][key] = value
+                else:
+                    preview[key] = value
+            return httpx.Response(200, json=preview)
         if request.url.path == "/api/drafts" and request.method == "POST":
             assert role == "buyer" and request.headers.get("idempotency-key")
             payload = json.loads(request.content)
@@ -99,7 +113,7 @@ class FakeApplication:
             if self.previews[preview_token] is not None and not self.allow_preview_reuse:
                 return httpx.Response(409, json={"detail": "preview already consumed"})
             draft_id = str(uuid4())
-            self.drafts[draft_id] = {"draft_id": draft_id, "status": "draft", "total": "230.00",
+            self.drafts[draft_id] = {"draft_id": draft_id, "buyer_id": "demo-buyer", "status": "draft", "total": "230.00",
                 "lines": [{"sku": "BRACKET", "quantity": 21 if self.bad_persisted else 20, "unit_price": "11.50",
                            "supplier_id": "S-FAST", "due_date": "2026-01-08"}]}
             self.confirmations[key] = draft_id
@@ -108,7 +122,7 @@ class FakeApplication:
         if request.url.path == "/api/drafts" and request.method == "GET":
             return httpx.Response(200, json=list(self.drafts.values()))
         if request.url.path.startswith("/api/drafts/"):
-            return httpx.Response(200, json=self.drafts[request.url.path.split("/")[-1]])
+            return httpx.Response(200, json={**self.drafts[request.url.path.split("/")[-1]], **self.persisted_override})
         if request.url.path == "/api/agent/run":
             payload = json.loads(request.content)
             draft_id = None
@@ -155,7 +169,7 @@ def test_suite_is_bounded_and_never_calls_approval_or_submission():
     assert BUYER not in json.dumps(result) and APPROVER not in json.dumps(result)
 
 
-@pytest.mark.parametrize("field", ["changed_quote", "changed_stock"])
+@pytest.mark.parametrize("field", ["changed_quote", "changed_stock", "bad_stock_due"])
 def test_stale_fixture_stops_before_any_model_call(field):
     app = FakeApplication()
     setattr(app, field, True)
@@ -238,6 +252,45 @@ def test_changed_preview_is_not_confirmed():
     assert result["status"] == "failed"
     assert not app.drafts
     assert all(not (method == "POST" and path == "/api/drafts") for method, path in app.calls)
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("as_of", "2026-01-02"), ("as_of", None), ("horizon_days", 8),
+    ("horizon_days", "7"), ("horizon_days", None), ("due_date", "2026-01-09"), ("due_date", None),
+    ("preview_hash", None), ("preview_hash", "z" * 64), ("preview_hash", "a" * 63),
+])
+def test_mismatched_preview_window_is_not_confirmed(field, value):
+    app = FakeApplication()
+    app.preview_override[field] = value
+    with client_for(app) as client:
+        result = evaluation.evaluate_one(client, BASE, TOKENS, evaluation.CASES[10])
+    assert result["status"] == "failed"
+    assert any("Purchase preview differs" in check for check in result["checks"])
+    assert not app.drafts
+    assert not any(method == "POST" and path == "/api/drafts" for method, path in app.calls)
+
+
+def test_missing_buyer_identity_stops_before_preview_confirmation():
+    app = FakeApplication()
+    app.bad_identity = True
+    with client_for(app) as client:
+        result = evaluation.evaluate_one(client, BASE, TOKENS, evaluation.CASES[10])
+    assert result["status"] == "failed"
+    assert not app.drafts
+    assert all(path != "/api/drafts/preview" for _, path in app.calls)
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("draft_id", str(uuid4())), ("draft_id", None), ("buyer_id", "different-buyer"), ("buyer_id", None),
+])
+def test_persisted_draft_must_have_confirmed_identity_and_buyer(field, value):
+    app = FakeApplication()
+    app.persisted_override[field] = value
+    with client_for(app) as client:
+        result = evaluation.evaluate_one(client, BASE, TOKENS, evaluation.CASES[10])
+    assert result["status"] == "failed"
+    assert any("Persisted draft differs" in item for item in result["checks"])
+    assert sum(method == "POST" and path == "/api/drafts" for method, path in app.calls) == 1
 
 
 def test_draft_must_match_the_confirmed_preview():
