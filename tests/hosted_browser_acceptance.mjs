@@ -185,7 +185,7 @@ try {
     if (videoDir) evidence.model.timing_note = 'UI timings include deliberate recording pauses; they are not pure inference time.';
   }
   if (videoDir && modelOk) {
-    await videoMoment(page, '#agent-result > h3', 2200);
+    await videoMoment(page, '#agent-result-title', 2200);
     // Keep the original, unedited response visible in successive viewport
     // positions. The model output itself is never replaced or rewritten.
     const answerHeight = await page.locator('#agent-answer').evaluate(el => el.getBoundingClientRect().height);
@@ -193,7 +193,7 @@ try {
       await page.evaluate(() => window.scrollBy({ top: 400, behavior: 'instant' }));
       await page.waitForTimeout(1200);
     }
-    await page.locator('#agent-result details summary').click();
+    await page.locator('#agent-result details:has(> #agent-trace) > summary').click();
     await videoMoment(page, '#agent-trace', 2200);
   }
   evidence.checks.model_query_called_read_only_tool = modelOk;

@@ -110,10 +110,15 @@ def _on_time_shipments(as_of: date, due_date: date):
     )
 
 
+def _raw_shortage(item, inbound_by_due, horizon_days: int):
+    """Share the shortage expression between Python values and SQL columns."""
+    return item.reserved + item.daily_demand * horizon_days + item.safety_stock - item.on_hand - inbound_by_due
+
+
 def _stock_risk(item, inbound_by_due: int, horizon_days: int, due_date: date) -> StockRisk:
     forecast_demand = item.daily_demand * horizon_days
     inbound_quantity = int(inbound_by_due)
-    shortage = max(0, item.reserved + forecast_demand + item.safety_stock - item.on_hand - inbound_quantity)
+    shortage = max(0, _raw_shortage(item, inbound_quantity, horizon_days))
     return StockRisk(
         sku=item.sku, name=item.name, on_hand=item.on_hand, reserved=item.reserved,
         inbound_by_due=inbound_quantity, forecast_demand=forecast_demand,
@@ -159,15 +164,9 @@ def list_quotes(session: Session, sku: str) -> list[Quote]:
     return _read_quotes(session, [sku])
 
 
-def stock_and_quotes(session: Session, sku: str, as_of: date, horizon_days: int) -> tuple[StockRisk | None, list[Quote]]:
-    """Read a SKU, its in-window inbound and its quotes from one statement snapshot.
-
-    Scalar columns are deliberate: the Session identity map may already hold
-    older ORM instances, which must not be mixed with this statement's rows.
-    """
-    due_date = _due_date(as_of, horizon_days)
-    inbound = _on_time_shipments(as_of, due_date)
-    statement = (
+def _stock_quote_statement(inbound):
+    # Scalar columns avoid stale objects already held by the Session identity map.
+    return (
         select(
             InventoryItem.sku, InventoryItem.name, InventoryItem.on_hand, InventoryItem.reserved,
             InventoryItem.daily_demand, InventoryItem.safety_stock,
@@ -179,32 +178,52 @@ def stock_and_quotes(session: Session, sku: str, as_of: date, horizon_days: int)
         .outerjoin(inbound, inbound.c.sku == InventoryItem.sku)
         .outerjoin(SupplierQuote, SupplierQuote.sku == InventoryItem.sku)
         .outerjoin(Supplier, Supplier.supplier_id == SupplierQuote.supplier_id)
-        .where(InventoryItem.sku == sku)
-        .order_by(SupplierQuote.supplier_id)
     )
+
+
+def _quote_from_row(row) -> Quote | None:
+    if row.quote_supplier_id is None or row.supplier_name is None:
+        return None
+    return Quote(sku=row.sku, supplier_id=row.quote_supplier_id, supplier_name=row.supplier_name,
+                 unit_price=row.unit_price, lead_days=row.lead_days, min_order=row.min_order)
+
+
+def stock_and_quotes(session: Session, sku: str, as_of: date, horizon_days: int) -> tuple[StockRisk | None, list[Quote]]:
+    """Read a SKU, its in-window inbound and its quotes from one statement snapshot."""
+    due_date = _due_date(as_of, horizon_days)
+    inbound = _on_time_shipments(as_of, due_date)
+    statement = (_stock_quote_statement(inbound)
+                 .where(InventoryItem.sku == sku)
+                 .order_by(SupplierQuote.supplier_id))
     rows = session.execute(statement).all()
     if not rows:
         return None, []
     stock = _stock_risk(rows[0], rows[0].inbound_by_due, horizon_days, due_date)
-    quotes = [
-        Quote(sku=sku, supplier_id=row.quote_supplier_id, supplier_name=row.supplier_name,
-              unit_price=row.unit_price, lead_days=row.lead_days, min_order=row.min_order)
-        for row in rows if row.quote_supplier_id is not None and row.supplier_name is not None
-    ]
+    quotes = [quote for row in rows if (quote := _quote_from_row(row)) is not None]
     return stock, quotes
 
 
 def recommend(session: Session, as_of: date, horizon_days: int) -> list[Recommendation]:
-    risks = [stock for stock in list_stock(session, as_of, horizon_days) if stock.shortage > 0]
-    if not risks:
-        return []
-
+    # One statement keeps the stock, inbound and quotes in the same snapshot,
+    # including on SQLite and MySQL READ COMMITTED. Filter out stocked items
+    # before joining their quotes, retaining the original deterministic order.
+    due_date = _due_date(as_of, horizon_days)
+    inbound = _on_time_shipments(as_of, due_date)
+    quantity = func.coalesce(inbound.c.quantity, 0)
+    statement = (_stock_quote_statement(inbound)
+                 .where(_raw_shortage(InventoryItem, quantity, horizon_days) > 0)
+                 .order_by(InventoryItem.sku, SupplierQuote.supplier_id))
+    risks_by_sku: dict[str, StockRisk] = {}
     quotes_by_sku: dict[str, list[Quote]] = {}
-    for quote in _read_quotes(session, [stock.sku for stock in risks]):
-        quotes_by_sku.setdefault(quote.sku, []).append(quote)
+    for row in session.execute(statement):
+        if row.sku not in risks_by_sku:
+            risks_by_sku[row.sku] = _stock_risk(row, row.inbound_by_due, horizon_days, due_date)
+        quote = _quote_from_row(row)
+        if quote is not None:
+            quotes_by_sku.setdefault(row.sku, []).append(quote)
 
     recommendations = []
-    for stock in risks:
+    for stock in risks_by_sku.values():
         quotes = quotes_by_sku.get(stock.sku, [])
         eligible = [quote for quote in quotes if quote.lead_days <= horizon_days]
         if not eligible:

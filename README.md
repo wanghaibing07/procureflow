@@ -79,7 +79,7 @@ python scripts/verify_compose.py --base-url http://127.0.0.1:8000 --env-file .en
 uv run --locked pytest -q
 ```
 
-默认使用本地 SQLite 和模拟模型输入。要追加 MySQL 验收，设置 `PROCUREFLOW_TEST_DB_URL` 为独立的 `procureflow_test` 数据库连接，再运行 `uv run --locked pytest -q tests/test_api.py tests/test_agent.py`；测试只接受数据库名严格等于 `procureflow_test` 的 MySQL 地址，并使用唯一请求和采购员数据。测试覆盖未审批的提交、采购员越权、同一草案重放、模型请求并发和 ERP 回执。真实模型应另外核对工具调用、草案参数和最终结果；模拟测试不计入真实模型成功率。
+默认使用本地 SQLite 和模拟模型输入。要追加 MySQL 验收，设置 `PROCUREFLOW_TEST_DB_URL` 为独立的 `procureflow_test` 数据库连接，再运行 `uv run --locked pytest -q tests/test_api.py tests/test_agent.py tests/test_catalog.py`；测试只接受数据库名严格等于 `procureflow_test` 的 MySQL 地址，并使用唯一请求和采购员数据。测试覆盖未审批的提交、采购员越权、同一草案重放、模型请求并发和 ERP 回执。真实模型应另外核对工具调用、草案参数和最终结果；模拟测试不计入真实模型成功率。
 
 如果已安装 ego-browser，可运行下面的浏览器测试；将示例中的文件 URL 换成该测试文件的实际绝对路径。测试使用本地合成的模拟服务，验证建单响应中断后的刷新重试，不需要真实模型或数据库：
 
